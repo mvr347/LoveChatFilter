@@ -16,6 +16,10 @@
 
     <repositories>
         <repository>
+            <id>jitpack.io</id>
+            <url>https://jitpack.io</url>
+        </repository>
+        <repository>
             <id>papermc</id>
             <url>https://repo.papermc.io/repository/maven-public/</url>
         </repository>
@@ -44,6 +48,13 @@
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>
             <version>3.1.8</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.github.mvr347</groupId>
+            <artifactId>AdvancedChat</artifactId>
+            <version>80f750378e</version>
+            <scope>provided</scope>
         </dependency>
     </dependencies>
 

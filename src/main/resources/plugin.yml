@@ -6,6 +6,8 @@ loadbefore:
   - CMI
 softdepend:
   - PlaceholderAPI
+depend:
+  - AdvancedChat
 author:
   - Lovelace69
   - Gemini

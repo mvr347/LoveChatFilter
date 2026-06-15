@@ -2,6 +2,10 @@ package me.lovelace.advancedchatfilter;
 
 import io.papermc.paper.chat.ChatRenderer;
 import io.papermc.paper.event.player.AsyncChatEvent;
+import me.lovelace.advancedChat.AdvancedChat;
+import me.lovelace.advancedChat.api.AdvancedChatAPI.AdvancedChatDeleteEvent;
+import me.lovelace.advancedChat.api.AdvancedChatAPI.AdvancedChatMessageEditEvent;
+import me.lovelace.advancedChat.api.AdvancedChatAPI.AdvancedChatMessageEvent;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
@@ -17,12 +21,14 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BookMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 
 @SuppressWarnings({"deprecation", "UnstableApiUsage"})
 public class ChatListener implements Listener {
     private final AdvancedChatFilter acf;
+    private Field advancedChatHistoryField;
 
     public ChatListener(AdvancedChatFilter acf) {
         this.acf = acf;
@@ -30,12 +36,16 @@ public class ChatListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onChat(AsyncChatEvent event) {
+        if (Bukkit.getPluginManager().isPluginEnabled("AdvancedChat")) {
+            return;
+        }
+
         Player player = event.getPlayer();
         Component originalComponent = event.message();
 
         String originalText = PlainTextComponentSerializer.plainText().serialize(originalComponent);
 
-        FilterEngine.ProcessResult result = acf.getFilterEngine().processChat(player, originalText);
+        FilterEngine.ProcessResult result = processChatMessage(player, originalText);
 
         if (result.cancelled) {
             event.setCancelled(true);
@@ -43,12 +53,6 @@ public class ChatListener implements Listener {
         }
 
         String finalText = result.message;
-
-        if (acf.getConfigManager().isModuleEnabled("grammar-fix")) {
-            if (acf.getGrammarManager().isEnabled(player)) {
-                finalText = acf.getGrammarManager().applyGrammar(finalText);
-            }
-        }
 
         if (!originalText.equals(finalText)) {
             boolean selfFilter = acf.getConfigManager().getConfig().getBoolean("self-filter", true);
@@ -64,6 +68,126 @@ public class ChatListener implements Listener {
             }
 
             event.message(Component.text(finalText));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onAdvancedChatMessage(AdvancedChatMessageEvent event) {
+        String originalText = event.getMessage();
+        FilterEngine.ProcessResult result = processChatMessage(event.getPlayer(), originalText);
+
+        if (result.cancelled) {
+            event.setCancelled(true);
+            return;
+        }
+
+        if (!originalText.equals(result.message)) {
+            event.setMessage(result.message);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onAdvancedChatMessageEdit(AdvancedChatMessageEditEvent event) {
+        removeAdvancedChatPacketEcho(event.getMessageId());
+
+        String originalText = event.getNewMessage();
+        FilterEngine.ProcessResult result = processEditedChatMessage(event.getPlayer(), originalText);
+
+        if (result.cancelled) {
+            event.setCancelled(true);
+            return;
+        }
+
+        if (!originalText.equals(result.message)) {
+            event.setNewMessage(result.message);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onAdvancedChatDelete(AdvancedChatDeleteEvent event) {
+        removeAdvancedChatPacketEcho(event.getMessageId());
+    }
+
+    private FilterEngine.ProcessResult processChatMessage(Player player, String originalText) {
+        FilterEngine.ProcessResult result = acf.getFilterEngine().processChat(player, originalText);
+        if (result.cancelled) {
+            return result;
+        }
+
+        String finalText = result.message;
+        if (acf.getConfigManager().isModuleEnabled("grammar-fix") && acf.getGrammarManager().isEnabled(player)) {
+            finalText = acf.getGrammarManager().applyGrammar(finalText);
+        }
+
+        result.message = finalText;
+        return result;
+    }
+
+    private FilterEngine.ProcessResult processEditedChatMessage(Player player, String originalText) {
+        String finalText = acf.getFilterEngine().processContent(player, originalText, FilterEngine.ContentType.CHAT);
+        if (acf.getConfigManager().isModuleEnabled("grammar-fix") && acf.getGrammarManager().isEnabled(player)) {
+            finalText = acf.getGrammarManager().applyGrammar(finalText);
+        }
+
+        if (acf.getConfigManager().isModuleEnabled("emptymessages-clear")) {
+            String clean = finalText.replaceAll("(?i)[&В§][0-9a-fk-orx]", "").strip();
+            if (clean.isEmpty()) {
+                return new FilterEngine.ProcessResult("", true);
+            }
+        }
+
+        return new FilterEngine.ProcessResult(finalText, false);
+    }
+
+    private void removeAdvancedChatPacketEcho(int messageId) {
+        try {
+            Object chatHistory = getAdvancedChatHistoryCache();
+            if (chatHistory == null) return;
+
+            var getIfPresent = chatHistory.getClass().getMethod("getIfPresent", Object.class);
+            getIfPresent.setAccessible(true);
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                Object historyObj = getIfPresent.invoke(chatHistory, player.getUniqueId());
+                if (!(historyObj instanceof List<?> history)) continue;
+
+                synchronized (history) {
+                    for (int i = 0; i < history.size(); i++) {
+                        Object lineObj = history.get(i);
+                        if (!(lineObj instanceof AdvancedChat.ChatLine line)) continue;
+                        if (line.messageId() == messageId && !line.isPluginMessage()) {
+                            String expectedPlain = PlainTextComponentSerializer.plainText().serialize(line.component());
+                            removeFollowingEchoes(history, i + 1, expectedPlain);
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            acf.getLogger().warning("Не удалось очистить дубль сообщения AdvancedChat перед удалением: " + e.getMessage());
+        }
+    }
+
+    private Object getAdvancedChatHistoryCache() throws ReflectiveOperationException {
+        AdvancedChat advancedChat = AdvancedChat.getInstance();
+        if (advancedChatHistoryField == null) {
+            Field field = AdvancedChat.class.getDeclaredField("chatHistory");
+            field.setAccessible(true);
+            advancedChatHistoryField = field;
+        }
+        return advancedChatHistoryField.get(advancedChat);
+    }
+
+    private void removeFollowingEchoes(List<?> history, int startIndex, String expectedPlain) {
+        int index = startIndex;
+        while (index < history.size()) {
+            Object candidateObj = history.get(index);
+            if (!(candidateObj instanceof AdvancedChat.ChatLine candidate)) return;
+            if (!candidate.isPluginMessage()) return;
+
+            String candidatePlain = PlainTextComponentSerializer.plainText().serialize(candidate.component());
+            if (!candidatePlain.equals(expectedPlain)) return;
+
+            history.remove(index);
         }
     }
 
