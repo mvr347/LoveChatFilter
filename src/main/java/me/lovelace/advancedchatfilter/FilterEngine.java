@@ -96,9 +96,9 @@ public class FilterEngine {
                 }
             }
             try {
-                profanityPattern = Pattern.compile("(?ui)(" + String.join("|", smartRegexList) + ")");
+                profanityPattern = Pattern.compile("(?uiU)(" + String.join("|", smartRegexList) + ")");
             } catch (Exception e) {
-                plugin.getLogger().severe("КРИТИЧЕСКАЯ ОШИБКА РЕГУЛЯРКИ МАТА! Проверьте конфиг.");
+                plugin.getLogger().severe("КРИТИЧЕСКАЯ ОШИБКА РЕГУЛЯРКИ МАТА! Проверьте конфиг. Ошибка: " + e.getMessage());
                 profanityPattern = null;
             }
         } else {
