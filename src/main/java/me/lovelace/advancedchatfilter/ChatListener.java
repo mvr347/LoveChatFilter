@@ -130,7 +130,7 @@ public class ChatListener implements Listener {
         }
 
         if (acf.getConfigManager().isModuleEnabled("emptymessages-clear")) {
-            String clean = finalText.replaceAll("(?i)[&В§][0-9a-fk-orx]", "").strip();
+            String clean = finalText.replaceAll("(?i)[&§][0-9a-fk-orx]", "").strip();
             if (clean.isEmpty()) {
                 return new FilterEngine.ProcessResult("", true);
             }
