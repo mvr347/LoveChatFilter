@@ -35,6 +35,35 @@ public class FilterEngine {
     private final Map<UUID, Long> lastGoodwordTimeNoTarget = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastAdditionalTime = new ConcurrentHashMap<>();
 
+    // Common Cyrillic/Latin (and a couple of Greek) homoglyphs mapped to a single canonical
+    // (Latin) form, so mixed-script letter substitution can't be used to dodge the badword filter.
+    private static final Map<Character, Character> HOMOGLYPHS = buildHomoglyphMap();
+
+    private static Map<Character, Character> buildHomoglyphMap() {
+        Map<Character, Character> m = new HashMap<>();
+        String cyrLower = "аеорсухкмтвн";
+        String latLower = "aeopcyxkmtbh";
+        String cyrUpper = "АЕОРСУХКМТВН";
+        String latUpper = "AEOPCYXKMTBH";
+        for (int i = 0; i < cyrLower.length(); i++) m.put(cyrLower.charAt(i), latLower.charAt(i));
+        for (int i = 0; i < cyrUpper.length(); i++) m.put(cyrUpper.charAt(i), latUpper.charAt(i));
+        m.put('і', 'i');
+        m.put('І', 'I');
+        m.put('ј', 'j');
+        m.put('Ѕ', 'S');
+        m.put('ѕ', 's');
+        return Map.copyOf(m);
+    }
+
+    private static String normalizeHomoglyphs(String text) {
+        StringBuilder sb = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            sb.append(HOMOGLYPHS.getOrDefault(c, c));
+        }
+        return sb.toString();
+    }
+
     private record CacheKey(String text, boolean bypassCaps, boolean bypassBadwords, boolean bypassAds, boolean grammarEnabled, ContentType type) {}
     private record CacheValue(String processedText, boolean triggeredCaps, boolean triggeredSwear, boolean triggeredAds, boolean triggeredGoodwords, String target, boolean triggeredAdditional, String additionalTarget) {}
 
@@ -59,14 +88,25 @@ public class FilterEngine {
         reloadCache();
     }
 
+    /**
+     * Removes all per-player timing/state entries for a player who left the server, so the
+     * timing maps don't grow unbounded on long-running servers with many distinct players.
+     */
+    public void clearPlayerData(UUID uuid) {
+        lastMessageTime.remove(uuid);
+        lastMessageText.remove(uuid);
+        lastGoodwordTimeWithTarget.remove(uuid);
+        lastGoodwordTimeNoTarget.remove(uuid);
+        lastAdditionalTime.remove(uuid);
+    }
+
     public void reloadCache() {
         FileConfiguration config = plugin.getConfigManager().getConfig();
         contentCache.invalidateAll();
 
-        lastGoodwordTimeWithTarget.clear();
-        lastGoodwordTimeNoTarget.clear();
-        lastAdditionalTime.clear();
-        lastMessageText.clear();
+        // Note: per-player timing maps (spam/goodword/additional cooldowns) are intentionally
+        // NOT cleared here. A config reload should not reset anti-spam cooldowns for online
+        // players. They are cleaned up per-player on PlayerQuitEvent instead (see clearPlayerData).
 
         bwSignFilter = config.getBoolean("badwords-filter.sign-filter", true);
         bwBookFilter = config.getBoolean("badwords-filter.book-filter", true);
@@ -87,12 +127,17 @@ public class FilterEngine {
                     smartRegexList.add(word.substring(4)); // Отрезаем (?i), чтобы не сломать общий паттерн
                 } else {
                     StringBuilder sb = new StringBuilder();
-                    char[] chars = word.toLowerCase().toCharArray();
+                    char[] chars = normalizeHomoglyphs(word.toLowerCase()).toCharArray();
                     for (int i = 0; i < chars.length; i++) {
                         sb.append(Pattern.quote(String.valueOf(chars[i]))).append("+");
-                        if (i < chars.length - 1) sb.append("[\\W_]*");
+                        // Separator between letters may be any non-letter character, INCLUDING
+                        // digits (digits are \w, so plain \W would let "х1у2й"-style leetspeak
+                        // insertion slip through untouched).
+                        if (i < chars.length - 1) sb.append("[\\W\\d_]*");
                     }
-                    smartRegexList.add(sb.toString());
+                    // Anchor on both ends so the banned word must be a standalone token, not an
+                    // embedded substring of a longer, unrelated word (the Scunthorpe problem).
+                    smartRegexList.add("(?<![\\p{L}])" + sb + "(?![\\p{L}])");
                 }
             }
             try {
@@ -257,7 +302,10 @@ public class FilterEngine {
         if (cm.isModuleEnabled("badwords-filter") && !key.bypassBadwords && profanityPattern != null) {
             if (shouldFilter(key.type, bwSignFilter, bwBookFilter, bwItemFilter)) {
                 String repl = cm.getConfig().getString("badwords-filter.replacement-char", "👑");
-                FilterResult sr = applyRegexFilter(message, profanityPattern, null, repl);
+                // Match against a homoglyph-normalized view of the message (Cyrillic/Latin
+                // lookalikes folded to one canonical form) while still replacing/preserving the
+                // original text, since normalization is 1:1 and preserves character offsets.
+                FilterResult sr = applyRegexFilter(message, normalizeHomoglyphs(message), profanityPattern, null, repl);
                 if (sr.wasFiltered) { triggeredSwear = true; message = sr.text; }
             }
         }
@@ -265,7 +313,7 @@ public class FilterEngine {
         if (cm.isModuleEnabled("ads-filter") && !key.bypassAds && ipPattern != null) {
             if (shouldFilter(key.type, adsSignFilter, adsBookFilter, adsItemFilter)) {
                 String repl = cm.getConfig().getString("ads-filter.replacement-char", "*");
-                FilterResult ar = applyRegexFilter(message, ipPattern, adsWhitelistPattern, repl);
+                FilterResult ar = applyRegexFilter(message, message, ipPattern, adsWhitelistPattern, repl);
                 if (ar.wasFiltered) { triggeredAds = true; message = ar.text; }
             }
         }
@@ -302,22 +350,33 @@ public class FilterEngine {
         return true;
     }
 
-    private FilterResult applyRegexFilter(String text, Pattern pattern, Pattern whitelist, String repl) {
+    /**
+     * Runs {@code pattern} against {@code matchText} (which may be a normalized view of
+     * {@code originalText}, e.g. with homoglyphs folded) but builds the result from
+     * {@code originalText}, using the match offsets. This only works correctly when
+     * {@code matchText} and {@code originalText} have identical length (i.e. any normalization
+     * applied is a 1:1 character mapping).
+     */
+    private FilterResult applyRegexFilter(String originalText, String matchText, Pattern pattern, Pattern whitelist, String repl) {
         boolean useNone = repl.equalsIgnoreCase("NONE");
-        Matcher m = pattern.matcher(text);
+        Matcher m = pattern.matcher(matchText);
         StringBuilder sb = new StringBuilder();
         boolean matched = false;
+        int lastEnd = 0;
 
         while (m.find()) {
-            String matchStr = m.group();
+            int start = m.start(), end = m.end();
+            sb.append(originalText, lastEnd, start);
+            String matchStr = originalText.substring(start, end);
             if (whitelist != null && whitelist.matcher(matchStr).find()) {
-                m.appendReplacement(sb, Matcher.quoteReplacement(matchStr));
+                sb.append(matchStr);
             } else {
                 matched = true;
-                m.appendReplacement(sb, useNone ? "" : Matcher.quoteReplacement(repl.repeat(matchStr.length())));
+                sb.append(useNone ? "" : repl.repeat(matchStr.length()));
             }
+            lastEnd = end;
         }
-        m.appendTail(sb);
+        sb.append(originalText, lastEnd, originalText.length());
         return new FilterResult(sb.toString(), matched);
     }
 
