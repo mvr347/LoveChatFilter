@@ -1,39 +1,38 @@
-name: AdvancedChatFilter
-version: "2.0"
-main: me.lovelace.advancedchatfilter.AdvancedChatFilter
+name: LoveChatFilter
+version: "3.0"
+main: me.lovelace.lovechatfilter.LoveChatFilter
 api-version: '1.21'
 loadbefore:
   - CMI
 softdepend:
   - PlaceholderAPI
 depend:
-  - AdvancedChat
+  - Lovechat
 author:
   - Lovelace69
-  - Gemini
-description: Продвинутый модульный фильтр чата v2.0 с SQLite.
+description: Продвинутый модульный фильтр чата v3.0 с SQLite.
 
 commands:
   acf:
     description: Основная команда плагина
-    aliases: [advancedchatfilter]
+    aliases: [lovechatfilter]
 
 permissions:
-  advancedchatfilter.reload:
+  lovechatfilter.reload:
     description: Право на перезагрузку плагина
     default: op
-  advancedchatfilter.bypass.ads:
+  lovechatfilter.bypass.ads:
     description: Право на обход фильтра рекламы
     default: op
-  advancedchatfilter.bypass.badwords:
+  lovechatfilter.bypass.badwords:
     description: Право на обход фильтра мата
     default: op
-  advancedchatfilter.bypass.caps:
+  lovechatfilter.bypass.caps:
     description: Право на обход фильтра капса
     default: op
-  advancedchatfilter.bypass.spam:
+  lovechatfilter.bypass.spam:
     description: Право на обход фильтра спама
     default: op
-  advancedchatfilter.log:
+  lovechatfilter.log:
     description: Право на просмотр логов чата
     default: op

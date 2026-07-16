@@ -1,5 +1,6 @@
-package me.lovelace.advancedchatfilter;
+package me.lovelace.lovechatfilter.managers;
 
+import me.lovelace.lovechatfilter.LoveChatFilter;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -8,11 +9,11 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import java.io.File;
 
 public class ConfigManager {
-    private final AdvancedChatFilter plugin;
+    private final LoveChatFilter plugin;
     private FileConfiguration config;
     private FileConfiguration messages;
 
-    public ConfigManager(AdvancedChatFilter plugin) {
+    public ConfigManager(LoveChatFilter plugin) {
         this.plugin = plugin;
         loadFiles();
     }

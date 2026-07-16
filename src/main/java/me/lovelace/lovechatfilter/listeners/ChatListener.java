@@ -1,11 +1,11 @@
-package me.lovelace.advancedchatfilter;
+package me.lovelace.lovechatfilter.listeners;
 
-import io.papermc.paper.chat.ChatRenderer;
-import io.papermc.paper.event.player.AsyncChatEvent;
-import me.lovelace.advancedChat.AdvancedChat;
-import me.lovelace.advancedChat.api.AdvancedChatAPI.AdvancedChatDeleteEvent;
-import me.lovelace.advancedChat.api.AdvancedChatAPI.AdvancedChatMessageEditEvent;
-import me.lovelace.advancedChat.api.AdvancedChatAPI.AdvancedChatMessageEvent;
+import me.lovelace.lovechat.Lovechat;
+import me.lovelace.lovechat.api.LovechatAPI.LovechatDeleteEvent;
+import me.lovelace.lovechat.api.LovechatAPI.LovechatMessageEditEvent;
+import me.lovelace.lovechat.api.LovechatAPI.LovechatMessageEvent;
+import me.lovelace.lovechatfilter.LoveChatFilter;
+import me.lovelace.lovechatfilter.filters.FilterEngine;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
@@ -17,6 +17,7 @@ import org.bukkit.event.block.SignChangeEvent;
 import org.bukkit.event.inventory.PrepareAnvilEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerEditBookEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BookMeta;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -27,52 +28,20 @@ import java.util.List;
 
 @SuppressWarnings({"deprecation", "UnstableApiUsage"})
 public class ChatListener implements Listener {
-    private final AdvancedChatFilter acf;
-    private Field advancedChatHistoryField;
+    private final LoveChatFilter acf;
+    private Field lovechatHistoryField;
 
-    public ChatListener(AdvancedChatFilter acf) {
+    public ChatListener(LoveChatFilter acf) {
         this.acf = acf;
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onChat(AsyncChatEvent event) {
-        if (Bukkit.getPluginManager().isPluginEnabled("AdvancedChat")) {
-            return;
-        }
-
-        Player player = event.getPlayer();
-        Component originalComponent = event.message();
-
-        String originalText = PlainTextComponentSerializer.plainText().serialize(originalComponent);
-
-        FilterEngine.ProcessResult result = processChatMessage(player, originalText);
-
-        if (result.cancelled) {
-            event.setCancelled(true);
-            return;
-        }
-
-        String finalText = result.message;
-
-        if (!originalText.equals(finalText)) {
-            boolean selfFilter = acf.getConfigManager().getConfig().getBoolean("self-filter", true);
-
-            if (!selfFilter) {
-                ChatRenderer originalRenderer = event.renderer();
-                event.renderer((source, sourceDisplayName, message, viewer) -> {
-                    if (viewer instanceof Player p && p.getUniqueId().equals(source.getUniqueId())) {
-                        return originalRenderer.render(source, sourceDisplayName, originalComponent, viewer);
-                    }
-                    return originalRenderer.render(source, sourceDisplayName, message, viewer);
-                });
-            }
-
-            event.message(Component.text(finalText));
-        }
+    @EventHandler
+    public void onJoin(PlayerJoinEvent event) {
+        acf.getDatabaseManager().preloadGrammarEnabled(event.getPlayer().getUniqueId());
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onAdvancedChatMessage(AdvancedChatMessageEvent event) {
+    public void onLovechatMessage(LovechatMessageEvent event) {
         String originalText = event.getMessage();
         FilterEngine.ProcessResult result = processChatMessage(event.getPlayer(), originalText);
 
@@ -87,8 +56,8 @@ public class ChatListener implements Listener {
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onAdvancedChatMessageEdit(AdvancedChatMessageEditEvent event) {
-        removeAdvancedChatPacketEcho(event.getMessageId());
+    public void onLovechatMessageEdit(LovechatMessageEditEvent event) {
+        removeLovechatPacketEcho(event.getMessageId());
 
         String originalText = event.getNewMessage();
         FilterEngine.ProcessResult result = processEditedChatMessage(event.getPlayer(), originalText);
@@ -104,8 +73,8 @@ public class ChatListener implements Listener {
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
-    public void onAdvancedChatDelete(AdvancedChatDeleteEvent event) {
-        removeAdvancedChatPacketEcho(event.getMessageId());
+    public void onLovechatDelete(LovechatDeleteEvent event) {
+        removeLovechatPacketEcho(event.getMessageId());
     }
 
     private FilterEngine.ProcessResult processChatMessage(Player player, String originalText) {
@@ -139,9 +108,9 @@ public class ChatListener implements Listener {
         return new FilterEngine.ProcessResult(finalText, false);
     }
 
-    private void removeAdvancedChatPacketEcho(int messageId) {
+    private void removeLovechatPacketEcho(int messageId) {
         try {
-            Object chatHistory = getAdvancedChatHistoryCache();
+            Object chatHistory = getLovechatHistoryCache();
             if (chatHistory == null) return;
 
             var getIfPresent = chatHistory.getClass().getMethod("getIfPresent", Object.class);
@@ -153,7 +122,7 @@ public class ChatListener implements Listener {
                 synchronized (history) {
                     for (int i = 0; i < history.size(); i++) {
                         Object lineObj = history.get(i);
-                        if (!(lineObj instanceof AdvancedChat.ChatLine line)) continue;
+                        if (!(lineObj instanceof Lovechat.ChatLine line)) continue;
                         if (line.messageId() == messageId && !line.isPluginMessage()) {
                             String expectedPlain = PlainTextComponentSerializer.plainText().serialize(line.component());
                             removeFollowingEchoes(history, i + 1, expectedPlain);
@@ -162,26 +131,24 @@ public class ChatListener implements Listener {
                     }
                 }
             }
-        } catch (ReflectiveOperationException | RuntimeException e) {
-            acf.getLogger().warning("Не удалось очистить дубль сообщения AdvancedChat перед удалением: " + e.getMessage());
-        }
+        } catch (ReflectiveOperationException | RuntimeException ignored) {}
     }
 
-    private Object getAdvancedChatHistoryCache() throws ReflectiveOperationException {
-        AdvancedChat advancedChat = AdvancedChat.getInstance();
-        if (advancedChatHistoryField == null) {
-            Field field = AdvancedChat.class.getDeclaredField("chatHistory");
+    private Object getLovechatHistoryCache() throws ReflectiveOperationException {
+        Lovechat lovechat = Lovechat.getInstance();
+        if (lovechatHistoryField == null) {
+            Field field = Lovechat.class.getDeclaredField("chatHistory");
             field.setAccessible(true);
-            advancedChatHistoryField = field;
+            lovechatHistoryField = field;
         }
-        return advancedChatHistoryField.get(advancedChat);
+        return lovechatHistoryField.get(lovechat);
     }
 
     private void removeFollowingEchoes(List<?> history, int startIndex, String expectedPlain) {
         int index = startIndex;
         while (index < history.size()) {
             Object candidateObj = history.get(index);
-            if (!(candidateObj instanceof AdvancedChat.ChatLine candidate)) return;
+            if (!(candidateObj instanceof Lovechat.ChatLine candidate)) return;
             if (!candidate.isPluginMessage()) return;
 
             String candidatePlain = PlainTextComponentSerializer.plainText().serialize(candidate.component());

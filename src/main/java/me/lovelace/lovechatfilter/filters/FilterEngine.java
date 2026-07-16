@@ -1,8 +1,10 @@
-package me.lovelace.advancedchatfilter;
+package me.lovelace.lovechatfilter.filters;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import me.clip.placeholderapi.PlaceholderAPI;
+import me.lovelace.lovechatfilter.LoveChatFilter;
+import me.lovelace.lovechatfilter.managers.ConfigManager;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -16,7 +18,7 @@ import java.util.regex.Pattern;
 
 @SuppressWarnings({"deprecation", "DuplicatedCode"})
 public class FilterEngine {
-    private final AdvancedChatFilter plugin;
+    private final LoveChatFilter plugin;
     private final MiniMessage mm = MiniMessage.miniMessage();
 
     private Pattern profanityPattern;
@@ -24,6 +26,14 @@ public class FilterEngine {
     private Pattern adsWhitelistPattern;
     private Pattern goodwordsPattern;
     private Pattern additionalPattern;
+
+    private boolean advancedEnabled;
+    private boolean advancedHomoglyphs;
+    private boolean advancedDigits;
+    private boolean advancedFuzzy;
+    private int advancedMaxTypoDistance;
+    private int advancedMinFuzzyLength;
+    private List<String> plainBadwords = List.of();
 
     private int capsPercentThreshold;
     private boolean bwSignFilter, bwBookFilter, bwItemFilter;
@@ -54,7 +64,7 @@ public class FilterEngine {
         }
     }
 
-    public FilterEngine(AdvancedChatFilter plugin) {
+    public FilterEngine(LoveChatFilter plugin) {
         this.plugin = plugin;
         reloadCache();
     }
@@ -98,12 +108,25 @@ public class FilterEngine {
             try {
                 profanityPattern = Pattern.compile("(?uiU)(" + String.join("|", smartRegexList) + ")");
             } catch (Exception e) {
-                plugin.getLogger().severe("КРИТИЧЕСКАЯ ОШИБКА РЕГУЛЯРКИ МАТА! Проверьте конфиг. Ошибка: " + e.getMessage());
                 profanityPattern = null;
             }
+
+            List<String> plain = new ArrayList<>();
+            for (String word : badwords) {
+                if (!word.startsWith("(?i)")) plain.add(word.toLowerCase());
+            }
+            plainBadwords = plain;
         } else {
             profanityPattern = null;
+            plainBadwords = List.of();
         }
+
+        advancedEnabled = config.getBoolean("badwords-filter.advanced.enabled", false);
+        advancedHomoglyphs = config.getBoolean("badwords-filter.advanced.homoglyph-detection", true);
+        advancedDigits = config.getBoolean("badwords-filter.advanced.digit-substitution-detection", true);
+        advancedFuzzy = config.getBoolean("badwords-filter.advanced.fuzzy-matching", true);
+        advancedMaxTypoDistance = config.getInt("badwords-filter.advanced.max-typo-distance", 1);
+        advancedMinFuzzyLength = config.getInt("badwords-filter.advanced.min-fuzzy-word-length", 4);
 
         List<String> adPatterns = new ArrayList<>(config.getStringList("ads-filter.patterns"));
         adPatterns.addAll(config.getStringList("ads-filter.extra-link-patterns"));
@@ -128,7 +151,7 @@ public class FilterEngine {
     public ProcessResult processChat(Player player, String originalMessage) {
         ConfigManager cm = plugin.getConfigManager();
 
-        if (cm.isModuleEnabled("anti-spam") && !player.hasPermission("advancedchatfilter.bypass.spam")) {
+        if (cm.isModuleEnabled("anti-spam") && !player.hasPermission("lovechatfilter.bypass.spam")) {
             double remainingTime = checkSpam(player, originalMessage);
             if (remainingTime > 0) {
                 triggerCommands("anti-spam.commands-on-detect", player, originalMessage, originalMessage, "");
@@ -138,9 +161,9 @@ public class FilterEngine {
             }
         }
 
-        boolean bypassCaps = player.hasPermission("advancedchatfilter.bypass.caps");
-        boolean bypassBadwords = player.hasPermission("advancedchatfilter.bypass.badwords");
-        boolean bypassAds = player.hasPermission("advancedchatfilter.bypass.ads");
+        boolean bypassCaps = player.hasPermission("lovechatfilter.bypass.caps");
+        boolean bypassBadwords = player.hasPermission("lovechatfilter.bypass.badwords");
+        boolean bypassAds = player.hasPermission("lovechatfilter.bypass.ads");
         boolean grammarEnabled = plugin.getGrammarManager().isEnabled(player);
 
         CacheKey key = new CacheKey(originalMessage, bypassCaps, bypassBadwords, bypassAds, grammarEnabled, ContentType.CHAT);
@@ -237,9 +260,9 @@ public class FilterEngine {
     public String processContent(Player player, String text, ContentType type) {
         if (text == null || text.isEmpty()) return text;
         CacheKey key = new CacheKey(text,
-                player.hasPermission("advancedchatfilter.bypass.caps"),
-                player.hasPermission("advancedchatfilter.bypass.badwords"),
-                player.hasPermission("advancedchatfilter.bypass.ads"),
+                player.hasPermission("lovechatfilter.bypass.caps"),
+                player.hasPermission("lovechatfilter.bypass.badwords"),
+                player.hasPermission("lovechatfilter.bypass.ads"),
                 plugin.getGrammarManager().isEnabled(player), type);
         return contentCache.get(key, this::evaluateContent).processedText;
     }
@@ -254,11 +277,30 @@ public class FilterEngine {
             if (checkCaps(message, capsPercentThreshold)) { triggeredCaps = true; message = message.toLowerCase(); }
         }
 
-        if (cm.isModuleEnabled("badwords-filter") && !key.bypassBadwords && profanityPattern != null) {
+        if (cm.isModuleEnabled("badwords-filter") && !key.bypassBadwords) {
             if (shouldFilter(key.type, bwSignFilter, bwBookFilter, bwItemFilter)) {
                 String repl = cm.getConfig().getString("badwords-filter.replacement-char", "👑");
-                FilterResult sr = applyRegexFilter(message, profanityPattern, null, repl);
-                if (sr.wasFiltered) { triggeredSwear = true; message = sr.text; }
+                boolean filtered = false;
+
+                if (profanityPattern != null) {
+                    FilterResult sr = applyRegexFilter(message, profanityPattern, null, repl);
+                    if (sr.wasFiltered) { triggeredSwear = true; message = sr.text; filtered = true; }
+                }
+
+                if (!filtered && profanityPattern != null && advancedEnabled) {
+                    String canonical = AdvancedProfanityFilter.canonicalize(message, advancedHomoglyphs, advancedDigits);
+                    if (!canonical.equals(message)) {
+                        FilterResult cr = applyCanonicalRegexFilter(message, canonical, profanityPattern, repl);
+                        if (cr.wasFiltered) { triggeredSwear = true; message = cr.text; filtered = true; }
+                    }
+                }
+
+                if (!filtered && advancedEnabled && advancedFuzzy && !plainBadwords.isEmpty()) {
+                    String canonical = AdvancedProfanityFilter.canonicalize(message, advancedHomoglyphs, advancedDigits);
+                    AdvancedProfanityFilter.Result fr = AdvancedProfanityFilter.applyFuzzyFilter(
+                            message, canonical, plainBadwords, advancedMaxTypoDistance, advancedMinFuzzyLength, repl);
+                    if (fr.wasFiltered()) { triggeredSwear = true; message = fr.text(); }
+                }
             }
         }
 
@@ -318,6 +360,23 @@ public class FilterEngine {
             }
         }
         m.appendTail(sb);
+        return new FilterResult(sb.toString(), matched);
+    }
+
+    private FilterResult applyCanonicalRegexFilter(String original, String canonical, Pattern pattern, String repl) {
+        boolean useNone = repl.equalsIgnoreCase("NONE");
+        Matcher m = pattern.matcher(canonical);
+        StringBuilder sb = new StringBuilder();
+        int last = 0;
+        boolean matched = false;
+
+        while (m.find()) {
+            matched = true;
+            sb.append(original, last, m.start());
+            sb.append(useNone ? "" : repl.repeat(m.end() - m.start()));
+            last = m.end();
+        }
+        sb.append(original, last, original.length());
         return new FilterResult(sb.toString(), matched);
     }
 

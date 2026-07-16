@@ -1,5 +1,11 @@
-package me.lovelace.advancedchatfilter;
+package me.lovelace.lovechatfilter;
 
+import me.lovelace.lovechatfilter.commands.Commands;
+import me.lovelace.lovechatfilter.filters.FilterEngine;
+import me.lovelace.lovechatfilter.listeners.ChatListener;
+import me.lovelace.lovechatfilter.managers.ConfigManager;
+import me.lovelace.lovechatfilter.managers.DatabaseManager;
+import me.lovelace.lovechatfilter.managers.GrammarManager;
 import org.bukkit.Bukkit;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -13,7 +19,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.function.Consumer;
 
-public class AdvancedChatFilter extends JavaPlugin {
+public class LoveChatFilter extends JavaPlugin {
 
     private ConfigManager configManager;
     private DatabaseManager databaseManager;
@@ -37,7 +43,6 @@ public class AdvancedChatFilter extends JavaPlugin {
             acfCmd.setTabCompleter(cmdHandler);
         }
 
-        getLogger().info("AdvancedChatFilter v2.6 (UTF-8 Logs) успешно запущен!");
     }
 
     public void exportLogsAsync(int numLines, Consumer<String> callback) {

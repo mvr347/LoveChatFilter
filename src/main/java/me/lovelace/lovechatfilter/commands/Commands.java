@@ -1,5 +1,6 @@
-package me.lovelace.advancedchatfilter;
+package me.lovelace.lovechatfilter.commands;
 
+import me.lovelace.lovechatfilter.LoveChatFilter;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -10,9 +11,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class Commands implements CommandExecutor, TabCompleter {
-    private final AdvancedChatFilter plugin;
+    private final LoveChatFilter plugin;
 
-    public Commands(AdvancedChatFilter plugin) {
+    public Commands(LoveChatFilter plugin) {
         this.plugin = plugin;
     }
 
@@ -40,7 +41,7 @@ public class Commands implements CommandExecutor, TabCompleter {
             }
 
             if (args[0].equalsIgnoreCase("log")) {
-                if (!sender.hasPermission("advancedchatfilter.log")) {
+                if (!sender.hasPermission("lovechatfilter.log")) {
                     plugin.getConfigManager().sendMessage(sender, "no-permission", null, null);
                     return true;
                 }
@@ -72,7 +73,7 @@ public class Commands implements CommandExecutor, TabCompleter {
             }
 
             if (args[0].equalsIgnoreCase("reload")) {
-                if (sender.hasPermission("advancedchatfilter.reload")) {
+                if (sender.hasPermission("lovechatfilter.reload")) {
                     plugin.reloadPlugin();
                     plugin.getConfigManager().sendMessage(sender, "reload-success", null, null);
                 } else {
@@ -90,8 +91,8 @@ public class Commands implements CommandExecutor, TabCompleter {
         List<String> list = new ArrayList<>();
 
         if (command.getName().equalsIgnoreCase("acf") && args.length == 1) {
-            if (sender.hasPermission("advancedchatfilter.log")) list.add("log");
-            if (sender.hasPermission("advancedchatfilter.reload")) list.add("reload");
+            if (sender.hasPermission("lovechatfilter.log")) list.add("log");
+            if (sender.hasPermission("lovechatfilter.reload")) list.add("reload");
             if (sender instanceof Player && plugin.getConfigManager().isModuleEnabled("grammar-fix")) {
                 list.add("grammar");
             }

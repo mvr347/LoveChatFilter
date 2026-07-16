@@ -1,11 +1,12 @@
-package me.lovelace.advancedchatfilter;
+package me.lovelace.lovechatfilter.managers;
 
+import me.lovelace.lovechatfilter.LoveChatFilter;
 import org.bukkit.entity.Player;
 
 public class GrammarManager {
-    private final AdvancedChatFilter plugin;
+    private final LoveChatFilter plugin;
 
-    public GrammarManager(AdvancedChatFilter plugin) {
+    public GrammarManager(LoveChatFilter plugin) {
         this.plugin = plugin;
     }
 
