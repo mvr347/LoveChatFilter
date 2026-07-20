@@ -7,13 +7,13 @@ loadbefore:
 softdepend:
   - PlaceholderAPI
 depend:
-  - Lovechat
+  - LoveChat
 author:
   - Lovelace69
 description: Продвинутый модульный фильтр чата v3.0 с SQLite.
 
 commands:
-  acf:
+  lcf:
     description: Основная команда плагина
     aliases: [lovechatfilter]
 
@@ -32,7 +32,4 @@ permissions:
     default: op
   lovechatfilter.bypass.spam:
     description: Право на обход фильтра спама
-    default: op
-  lovechatfilter.log:
-    description: Право на просмотр логов чата
     default: op

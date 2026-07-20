@@ -7,6 +7,10 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 
 public class ConfigManager {
     private final LoveChatFilter plugin;
@@ -26,6 +30,16 @@ public class ConfigManager {
         plugin.reloadConfig();
         config = plugin.getConfig();
         messages = YamlConfiguration.loadConfiguration(msgFile);
+
+        // Подтягиваем дефолты из встроенного ресурса, чтобы новые ключи
+        // работали даже если файл на диске был создан старой версией плагина
+        try (InputStream stream = plugin.getResource("messages.yml")) {
+            if (stream != null) {
+                YamlConfiguration defaults = YamlConfiguration.loadConfiguration(
+                        new InputStreamReader(stream, StandardCharsets.UTF_8));
+                messages.setDefaults(defaults);
+            }
+        } catch (IOException ignored) {}
     }
 
     public void reloadConfig() {
@@ -37,8 +51,7 @@ public class ConfigManager {
     }
 
     public void sendMessage(CommandSender sender, String path, String placeholder, String value) {
-        String raw = messages.getString(path);
-        if (raw == null) raw = config.getString(path, "");
+        String raw = messages.getString(path, "");
 
         if (raw.isEmpty() || raw.equalsIgnoreCase("NONE")) return;
 
