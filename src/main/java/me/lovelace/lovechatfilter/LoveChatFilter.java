@@ -1,5 +1,6 @@
 package me.lovelace.lovechatfilter;
 
+import me.lovelace.lovechatfilter.api.LoveChatFilterAPI;
 import me.lovelace.lovechatfilter.commands.Commands;
 import me.lovelace.lovechatfilter.filters.FilterEngine;
 import me.lovelace.lovechatfilter.listeners.ChatListener;
@@ -7,9 +8,10 @@ import me.lovelace.lovechatfilter.managers.ConfigManager;
 import me.lovelace.lovechatfilter.managers.DatabaseManager;
 import me.lovelace.lovechatfilter.managers.GrammarManager;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
-public class LoveChatFilter extends JavaPlugin {
+public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
 
     private ConfigManager configManager;
     private DatabaseManager databaseManager;
@@ -32,6 +34,8 @@ public class LoveChatFilter extends JavaPlugin {
             lcfCmd.setExecutor(cmdHandler);
             lcfCmd.setTabCompleter(cmdHandler);
         }
+
+        getServer().getServicesManager().register(LoveChatFilterAPI.class, this, this, ServicePriority.Normal);
     }
 
     @Override
@@ -49,4 +53,9 @@ public class LoveChatFilter extends JavaPlugin {
     public DatabaseManager getDatabaseManager() { return databaseManager; }
     public FilterEngine getFilterEngine() { return filterEngine; }
     public GrammarManager getGrammarManager() { return grammarManager; }
+
+    @Override
+    public boolean isProfane(String text) {
+        return filterEngine.isProfane(text);
+    }
 }
