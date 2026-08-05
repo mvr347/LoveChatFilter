@@ -257,6 +257,35 @@ public class FilterEngine {
         return new ProcessResult(result.processedText, false);
     }
 
+    /**
+     * Pure badwords-filter check, independent of caps/ads/goodwords and immune to bypass
+     * permissions — used by cross-plugin integrations (e.g. LoveTweaks' Herald announcements)
+     * that broadcast text to the whole server, where a player's own chat-bypass permission
+     * shouldn't also whitelist a public announcement. No Player, no side effects (no
+     * goodword-detector commands, no caps rewriting) — just "would badwords-filter touch this".
+     */
+    public boolean isProfane(String text) {
+        if (text == null || text.isEmpty()) return false;
+        if (!plugin.getConfigManager().isModuleEnabled("badwords-filter")) return false;
+        if (profanityPattern == null) return false;
+
+        if (applyRegexFilter(text, profanityPattern, null, " ").wasFiltered()) {
+            return true;
+        }
+        if (!advancedEnabled) return false;
+
+        String canonical = AdvancedProfanityFilter.canonicalize(text, advancedHomoglyphs, advancedDigits);
+        if (!canonical.equals(text) && applyCanonicalRegexFilter(text, canonical, profanityPattern, " ").wasFiltered()) {
+            return true;
+        }
+        if (advancedFuzzy && !plainBadwords.isEmpty()) {
+            AdvancedProfanityFilter.Result fr = AdvancedProfanityFilter.applyFuzzyFilter(
+                    text, canonical, plainBadwords, advancedMaxTypoDistance, advancedMinFuzzyLength, " ");
+            if (fr.wasFiltered()) return true;
+        }
+        return false;
+    }
+
     public String processContent(Player player, String text, ContentType type) {
         if (text == null || text.isEmpty()) return text;
         CacheKey key = new CacheKey(text,
