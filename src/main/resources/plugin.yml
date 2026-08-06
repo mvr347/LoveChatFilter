@@ -1,7 +1,7 @@
 name: LoveChatFilter
 version: "3.0"
 main: me.lovelace.lovechatfilter.LoveChatFilter
-api-version: '1.21'
+api-version: '26.2'
 loadbefore:
   - CMI
 softdepend:
