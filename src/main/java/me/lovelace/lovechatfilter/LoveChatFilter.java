@@ -2,6 +2,7 @@ package me.lovelace.lovechatfilter;
 
 import me.lovelace.lovechatfilter.api.LoveChatFilterAPI;
 import me.lovelace.lovechatfilter.commands.Commands;
+import me.lovelace.lovechatfilter.commands.LoveChatFilterAdminCommand;
 import me.lovelace.lovechatfilter.filters.FilterEngine;
 import me.lovelace.lovechatfilter.listeners.ChatListener;
 import me.lovelace.lovechatfilter.managers.ConfigManager;
@@ -33,6 +34,19 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
         if (lcfCmd != null) {
             lcfCmd.setExecutor(cmdHandler);
             lcfCmd.setTabCompleter(cmdHandler);
+        }
+
+        PluginCommand grammarCmd = getCommand("grammar");
+        if (grammarCmd != null) {
+            grammarCmd.setExecutor(cmdHandler);
+            grammarCmd.setTabCompleter(cmdHandler);
+        }
+
+        LoveChatFilterAdminCommand adminCmdHandler = new LoveChatFilterAdminCommand(this);
+        PluginCommand adminCmd = getCommand("lovechatfilteradmin");
+        if (adminCmd != null) {
+            adminCmd.setExecutor(adminCmdHandler);
+            adminCmd.setTabCompleter(adminCmdHandler);
         }
 
         getServer().getServicesManager().register(LoveChatFilterAPI.class, this, this, ServicePriority.Normal);
