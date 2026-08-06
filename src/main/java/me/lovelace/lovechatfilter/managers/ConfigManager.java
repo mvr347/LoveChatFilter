@@ -50,6 +50,15 @@ public class ConfigManager {
         return config.getBoolean("modules." + module, false);
     }
 
+    /**
+     * Возвращает "сырую" строку сообщения без префикса плагина.
+     * Используется для баннеров справки (шапка/подвал), которые не должны
+     * дублировать префикс на каждой строке.
+     */
+    public String getRawMsg(String path) {
+        return messages.getString(path, "<red>Message not found: " + path + "</red>");
+    }
+
     public void sendMessage(CommandSender sender, String path, String placeholder, String value) {
         String raw = messages.getString(path, "");
 

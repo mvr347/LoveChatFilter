@@ -14,8 +14,14 @@ description: Продвинутый модульный фильтр чата v3.
 
 commands:
   lcf:
-    description: Основная команда плагина
+    description: Основная команда плагина (авто-исправление грамматики)
     aliases: [lovechatfilter]
+  grammar:
+    description: Включить/выключить авто-исправление грамматики
+    aliases: [грамматика]
+  lovechatfilteradmin:
+    description: Административные команды LoveChatFilter (reload и т.д.)
+    permission: lovechatfilter.reload
 
 permissions:
   lovechatfilter.reload:
