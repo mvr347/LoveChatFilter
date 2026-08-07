@@ -10,6 +10,7 @@ import me.lovelace.lovechatfilter.managers.DatabaseManager;
 import me.lovelace.lovechatfilter.managers.GrammarManager;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.ServicePriority;
+import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
@@ -54,6 +55,7 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
 
     @Override
     public void onDisable() {
+        HandlerList.unregisterAll(this);
         if (databaseManager != null) databaseManager.close();
     }
 
