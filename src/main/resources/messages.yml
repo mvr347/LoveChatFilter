@@ -24,14 +24,14 @@ chat-cleared: "<green>Чат был очищен администратором!
 # ==========================================
 # Единый формат справки для всех команд плагина: шапка, тело, подвал
 # ==========================================
-help-header: "<dark_gray>========== <gold>LoveChatFilter Помощь</gold> ==========</dark_gray>"
-help-grammar: "<gold>/lcf grammar</gold> <gray>- Вкл/выкл авто-исправление грамматики (алиасы: /grammar, /грамматика)</gray>"
-help-admin: "<gold>/lovechatfilteradmin reload</gold> <gray>- Административные команды LoveChatFilter</gray>"
+help-header: "<dark_gray>========== <aqua>LoveChatFilter Помощь</aqua> ==========</dark_gray>"
+help-grammar: "<aqua>/lcf grammar</aqua> <gray>- Вкл/выкл авто-исправление грамматики (алиасы: /grammar, /грамматика)</gray>"
+help-admin: "<aqua>/lovechatfilteradmin reload</aqua> <gray>- Административные команды LoveChatFilter</gray>"
 help-footer: "<dark_gray>=====================================</dark_gray>"
 
 # Команда переехала под единую admin-команду
-reload-moved: "<yellow>Эта команда переехала: используйте <gold>/lovechatfilteradmin reload</gold>.</yellow>"
+reload-moved: "<yellow>Эта команда переехала: используйте <aqua>/lovechatfilteradmin reload</aqua>.</yellow>"
 
-admin-help-header: "<dark_gray>========== <gold>LoveChatFilter Admin</gold> ==========</dark_gray>"
-admin-help-reload: "<gold>/lovechatfilteradmin reload</gold> <gray>- Перезагрузить конфигурацию и кэш фильтров</gray>"
+admin-help-header: "<dark_gray>========== <aqua>LoveChatFilter Admin</aqua> ==========</dark_gray>"
+admin-help-reload: "<aqua>/lovechatfilteradmin reload</aqua> <gray>- Перезагрузить конфигурацию и кэш фильтров</gray>"
 admin-help-footer: "<dark_gray>=====================================</dark_gray>"
