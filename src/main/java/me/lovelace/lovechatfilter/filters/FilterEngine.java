@@ -11,7 +11,6 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -39,11 +38,26 @@ public class FilterEngine {
     private boolean bwSignFilter, bwBookFilter, bwItemFilter;
     private boolean adsSignFilter, adsBookFilter, adsItemFilter;
 
-    private final Map<UUID, Long> lastMessageTime = new ConcurrentHashMap<>();
-    private final Map<UUID, String> lastMessageText = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> lastGoodwordTimeWithTarget = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> lastGoodwordTimeNoTarget = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> lastAdditionalTime = new ConcurrentHashMap<>();
+    private final Cache<UUID, Long> lastMessageTime = Caffeine.newBuilder()
+            .maximumSize(10000)
+            .expireAfterAccess(5, TimeUnit.MINUTES)
+            .build();
+    private final Cache<UUID, String> lastMessageText = Caffeine.newBuilder()
+            .maximumSize(10000)
+            .expireAfterAccess(5, TimeUnit.MINUTES)
+            .build();
+    private final Cache<UUID, Long> lastGoodwordTimeWithTarget = Caffeine.newBuilder()
+            .maximumSize(10000)
+            .expireAfterAccess(1, TimeUnit.HOURS)
+            .build();
+    private final Cache<UUID, Long> lastGoodwordTimeNoTarget = Caffeine.newBuilder()
+            .maximumSize(10000)
+            .expireAfterAccess(1, TimeUnit.HOURS)
+            .build();
+    private final Cache<UUID, Long> lastAdditionalTime = Caffeine.newBuilder()
+            .maximumSize(10000)
+            .expireAfterAccess(1, TimeUnit.HOURS)
+            .build();
 
     private record CacheKey(String text, boolean bypassCaps, boolean bypassBadwords, boolean bypassAds, boolean grammarEnabled, ContentType type) {}
     private record CacheValue(String processedText, boolean triggeredCaps, boolean triggeredSwear, boolean triggeredAds, boolean triggeredGoodwords, String target, boolean triggeredAdditional, String additionalTarget) {}
@@ -73,10 +87,11 @@ public class FilterEngine {
         FileConfiguration config = plugin.getConfigManager().getConfig();
         contentCache.invalidateAll();
 
-        lastGoodwordTimeWithTarget.clear();
-        lastGoodwordTimeNoTarget.clear();
-        lastAdditionalTime.clear();
-        lastMessageText.clear();
+        lastMessageTime.invalidateAll();
+        lastMessageText.invalidateAll();
+        lastGoodwordTimeWithTarget.invalidateAll();
+        lastGoodwordTimeNoTarget.invalidateAll();
+        lastAdditionalTime.invalidateAll();
 
         bwSignFilter = config.getBoolean("badwords-filter.sign-filter", true);
         bwBookFilter = config.getBoolean("badwords-filter.book-filter", true);
@@ -346,14 +361,38 @@ public class FilterEngine {
                 Matcher m = goodwordsPattern.matcher(message);
                 if (m.find()) {
                     triggeredGoodwords = true;
-                    for (int i = 1; i <= m.groupCount(); i++) if (m.group(i) != null) { foundTarget = m.group(i); break; }
+                    int groupCount = m.groupCount();
+                    for (int i = 1; i <= groupCount; i++) {
+                        try {
+                            String group = m.group(i);
+                            if (group != null) {
+                                foundTarget = group;
+                                break;
+                            }
+                        } catch (IndexOutOfBoundsException e) {
+                            plugin.getLogger().warning("Regex group " + i + " out of bounds in goodwords pattern");
+                            break;
+                        }
+                    }
                 }
             }
             if (additionalPattern != null) {
                 Matcher m = additionalPattern.matcher(message);
                 if (m.find()) {
                     triggeredAdditional = true;
-                    for (int i = 1; i <= m.groupCount(); i++) if (m.group(i) != null) { additionalTarget = m.group(i); break; }
+                    int groupCount = m.groupCount();
+                    for (int i = 1; i <= groupCount; i++) {
+                        try {
+                            String group = m.group(i);
+                            if (group != null) {
+                                additionalTarget = group;
+                                break;
+                            }
+                        } catch (IndexOutOfBoundsException e) {
+                            plugin.getLogger().warning("Regex group " + i + " out of bounds in additional pattern");
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -411,13 +450,15 @@ public class FilterEngine {
 
     private double getRemainingTime(Player player, String type) {
         UUID uuid = player.getUniqueId();
-        Map<UUID, Long> targetMap = switch (type) {
+        Cache<UUID, Long> targetMap = switch (type) {
             case "target" -> lastGoodwordTimeWithTarget;
             case "additional" -> lastAdditionalTime;
             default -> lastGoodwordTimeNoTarget;
         };
 
-        if (!targetMap.containsKey(uuid)) return 0;
+        Long cachedTime = targetMap.getIfPresent(uuid);
+        if (cachedTime == null) return 0;
+
         long now = System.currentTimeMillis();
         String configPath = switch (type) {
             case "target" -> "goodwords-detector.cooldown-seconds-target";
@@ -426,7 +467,7 @@ public class FilterEngine {
         };
 
         double cd = plugin.getConfigManager().getConfig().getDouble(configPath, 30.0) * 1000.0;
-        long diff = now - targetMap.get(uuid);
+        long diff = now - cachedTime;
         return diff >= cd ? 0 : (cd - diff) / 1000.0;
     }
 
@@ -434,11 +475,11 @@ public class FilterEngine {
         UUID uuid = player.getUniqueId();
         long now = System.currentTimeMillis();
         FileConfiguration config = plugin.getConfigManager().getConfig();
-        String lastText = lastMessageText.get(uuid);
+        String lastText = lastMessageText.getIfPresent(uuid);
         double cd = (message.equalsIgnoreCase(lastText))
                 ? config.getDouble("anti-spam.same-message-cooldown-seconds", 2.0)
                 : config.getDouble("anti-spam.message-cooldown-seconds", 1.5);
-        long diff = now - lastMessageTime.getOrDefault(uuid, 0L);
+        long diff = now - (lastMessageTime.getIfPresent(uuid) != null ? lastMessageTime.getIfPresent(uuid) : 0L);
         if (diff < (cd * 1000.0)) return (cd * 1000.0 - diff) / 1000.0;
         lastMessageTime.put(uuid, now);
         lastMessageText.put(uuid, message);
