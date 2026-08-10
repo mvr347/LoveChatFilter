@@ -115,7 +115,10 @@ public class ChatListener implements Listener {
 
             var getIfPresent = chatHistory.getClass().getMethod("getIfPresent", Object.class);
             getIfPresent.setAccessible(true);
-            for (Player player : Bukkit.getOnlinePlayers()) {
+
+            // Use a snapshot to avoid ConcurrentModificationException if players join/leave
+            List<Player> playerSnapshot = new ArrayList<>(Bukkit.getOnlinePlayers());
+            for (Player player : playerSnapshot) {
                 Object historyObj = getIfPresent.invoke(chatHistory, player.getUniqueId());
                 if (!(historyObj instanceof List<?> history)) continue;
 
@@ -131,7 +134,12 @@ public class ChatListener implements Listener {
                     }
                 }
             }
-        } catch (ReflectiveOperationException | RuntimeException ignored) {}
+        } catch (ReflectiveOperationException e) {
+            acf.getLogger().warning("Failed to remove lovechat packet echo (reflection error): " + e.getMessage());
+        } catch (RuntimeException e) {
+            acf.getLogger().severe("Unexpected error in removeLovechatPacketEcho: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     private Object getLovechatHistoryCache() throws ReflectiveOperationException {

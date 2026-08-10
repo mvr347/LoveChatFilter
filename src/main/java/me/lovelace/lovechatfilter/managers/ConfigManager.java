@@ -39,7 +39,9 @@ public class ConfigManager {
                         new InputStreamReader(stream, StandardCharsets.UTF_8));
                 messages.setDefaults(defaults);
             }
-        } catch (IOException ignored) {}
+        } catch (IOException e) {
+            plugin.getLogger().warning("Failed to load default messages from messages.yml: " + e.getMessage());
+        }
     }
 
     public void reloadConfig() {
