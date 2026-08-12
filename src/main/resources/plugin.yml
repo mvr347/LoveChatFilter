@@ -6,6 +6,7 @@ loadbefore:
   - CMI
 softdepend:
   - PlaceholderAPI
+  - LoveBehavior
 depend:
   - Lovechat
 author:
