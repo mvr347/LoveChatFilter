@@ -168,6 +168,8 @@ public class ChatListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onCommand(PlayerCommandPreprocessEvent event) {
+        if (!isAuthenticated(event.getPlayer())) return;
+
         String message = event.getMessage();
         if (message.length() < 2) return;
 
@@ -284,5 +286,11 @@ public class ChatListener implements Listener {
                 }
             }
         }
+    }
+
+    private boolean isAuthenticated(Player player) {
+        return dev.lovelace.lovecore.api.LoveCore.service(dev.lovelace.lovecore.api.auth.AuthOracle.class)
+                .map(oracle -> oracle.isAuthenticated(player.getUniqueId()))
+                .orElse(true);
     }
 }
