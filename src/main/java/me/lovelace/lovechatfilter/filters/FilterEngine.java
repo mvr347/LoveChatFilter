@@ -19,17 +19,20 @@ import java.util.regex.Pattern;
 public class FilterEngine {
     private final LoveChatFilter plugin;
     private final MiniMessage mm = MiniMessage.miniMessage();
+    private final me.lovelace.lovechatfilter.integration.LoveBehaviorBridge loveBehaviorBridge;
 
     private Pattern profanityPattern;
     private Pattern ipPattern;
     private Pattern adsWhitelistPattern;
     private Pattern goodwordsPattern;
     private Pattern additionalPattern;
+    private Pattern politePhrasePattern;
 
     private boolean advancedEnabled;
     private boolean advancedHomoglyphs;
     private boolean advancedDigits;
     private boolean advancedFuzzy;
+    private boolean advancedCompact;
     private int advancedMaxTypoDistance;
     private int advancedMinFuzzyLength;
     private List<String> plainBadwords = List.of();
@@ -37,6 +40,9 @@ public class FilterEngine {
     private int capsPercentThreshold;
     private boolean bwSignFilter, bwBookFilter, bwItemFilter;
     private boolean adsSignFilter, adsBookFilter, adsItemFilter;
+
+    private boolean autoModEnabled;
+    private int severityProfanity, severitySpam, severityCaps, severityAds;
 
     private final Cache<UUID, Long> lastMessageTime = Caffeine.newBuilder()
             .maximumSize(10000)
@@ -80,6 +86,7 @@ public class FilterEngine {
 
     public FilterEngine(LoveChatFilter plugin) {
         this.plugin = plugin;
+        this.loveBehaviorBridge = new me.lovelace.lovechatfilter.integration.LoveBehaviorBridge(plugin);
         reloadCache();
     }
 
@@ -140,6 +147,7 @@ public class FilterEngine {
         advancedHomoglyphs = config.getBoolean("badwords-filter.advanced.homoglyph-detection", true);
         advancedDigits = config.getBoolean("badwords-filter.advanced.digit-substitution-detection", true);
         advancedFuzzy = config.getBoolean("badwords-filter.advanced.fuzzy-matching", true);
+        advancedCompact = config.getBoolean("badwords-filter.advanced.compact-detection", true);
         advancedMaxTypoDistance = config.getInt("badwords-filter.advanced.max-typo-distance", 1);
         advancedMinFuzzyLength = config.getInt("badwords-filter.advanced.min-fuzzy-word-length", 4);
 
@@ -161,6 +169,15 @@ public class FilterEngine {
 
         List<String> additional = config.getStringList("goodwords-detector.additional-list");
         additionalPattern = additional.isEmpty() ? null : Pattern.compile("(?ui)" + String.join("|", additional));
+
+        autoModEnabled = config.getBoolean("modules.auto-moderation", true);
+        severityProfanity = config.getInt("auto-moderation.violation-severity.profanity", 3);
+        severitySpam = config.getInt("auto-moderation.violation-severity.spam", 2);
+        severityCaps = config.getInt("auto-moderation.violation-severity.caps", 1);
+        severityAds = config.getInt("auto-moderation.violation-severity.ads", 2);
+
+        List<String> politePhrases = config.getStringList("auto-moderation.polite-phrases.list");
+        politePhrasePattern = politePhrases.isEmpty() ? null : Pattern.compile("(?ui)" + String.join("|", politePhrases));
     }
 
     public ProcessResult processChat(Player player, String originalMessage) {
@@ -172,9 +189,12 @@ public class FilterEngine {
                 triggerCommands("anti-spam.commands-on-detect", player, originalMessage, originalMessage, "");
                 cm.sendMessage(player, "anti-spam.message", "{time}", String.format("%.1f", remainingTime));
                 playConfigSound(player, "anti-spam.sound");
+                fireViolation(player, me.lovelace.lovechatfilter.api.events.ChatViolationEvent.ViolationType.SPAM, severitySpam);
                 return new ProcessResult(originalMessage, true);
             }
         }
+
+        scanPolitePhrase(player, originalMessage);
 
         boolean bypassCaps = player.hasPermission("lovechatfilter.bypass.caps");
         boolean bypassBadwords = player.hasPermission("lovechatfilter.bypass.badwords");
@@ -187,11 +207,13 @@ public class FilterEngine {
         if (result.triggeredSwear && cm.getConfig().getBoolean("badwords-filter.full-delete-message", false)) {
             triggerCommands("badwords-filter.commands-on-detect", player, result.processedText, originalMessage, "");
             playConfigSound(player, "badwords-filter.sound");
+            fireViolation(player, me.lovelace.lovechatfilter.api.events.ChatViolationEvent.ViolationType.PROFANITY, severityProfanity);
             return new ProcessResult("", true);
         }
         if (result.triggeredAds && cm.getConfig().getBoolean("ads-filter.full-delete-message", false)) {
             triggerCommands("ads-filter.commands-on-detect", player, result.processedText, originalMessage, "");
             playConfigSound(player, "ads-filter.sound");
+            fireViolation(player, me.lovelace.lovechatfilter.api.events.ChatViolationEvent.ViolationType.ADS, severityAds);
             return new ProcessResult("", true);
         }
 
@@ -204,14 +226,17 @@ public class FilterEngine {
             cm.sendMessage(player, "anti-caps.message", null, null);
             playConfigSound(player, "anti-caps.sound");
             triggerCommands("anti-caps.commands-on-detect", player, result.processedText, originalMessage, "");
+            fireViolation(player, me.lovelace.lovechatfilter.api.events.ChatViolationEvent.ViolationType.CAPS, severityCaps);
         }
         if (result.triggeredSwear) {
             triggerCommands("badwords-filter.commands-on-detect", player, result.processedText, originalMessage, "");
             playConfigSound(player, "badwords-filter.sound");
+            fireViolation(player, me.lovelace.lovechatfilter.api.events.ChatViolationEvent.ViolationType.PROFANITY, severityProfanity);
         }
         if (result.triggeredAds) {
             triggerCommands("ads-filter.commands-on-detect", player, result.processedText, originalMessage, "");
             playConfigSound(player, "ads-filter.sound");
+            fireViolation(player, me.lovelace.lovechatfilter.api.events.ChatViolationEvent.ViolationType.ADS, severityAds);
         }
 
         if (result.triggeredAdditional && cm.isModuleEnabled("goodwords-detector")) {
@@ -298,6 +323,10 @@ public class FilterEngine {
                     text, canonical, plainBadwords, advancedMaxTypoDistance, advancedMinFuzzyLength, " ");
             if (fr.wasFiltered()) return true;
         }
+        if (advancedCompact && !plainBadwords.isEmpty()) {
+            String compact = AdvancedProfanityFilter.compact(canonical);
+            if (AdvancedProfanityFilter.containsCompactMatch(compact, plainBadwords, advancedMinFuzzyLength)) return true;
+        }
         return false;
     }
 
@@ -343,7 +372,19 @@ public class FilterEngine {
                     String canonical = AdvancedProfanityFilter.canonicalize(message, advancedHomoglyphs, advancedDigits);
                     AdvancedProfanityFilter.Result fr = AdvancedProfanityFilter.applyFuzzyFilter(
                             message, canonical, plainBadwords, advancedMaxTypoDistance, advancedMinFuzzyLength, repl);
-                    if (fr.wasFiltered()) { triggeredSwear = true; message = fr.text(); }
+                    if (fr.wasFiltered()) { triggeredSwear = true; message = fr.text(); filtered = true; }
+                }
+
+                // Компактное сравнение (пробелы/пунктуация вырезаны, растянутые буквы схлопнуты)
+                // не даёт смещений для точечной замены — при срабатывании только этого слоя
+                // цензурим сообщение целиком, а не отдельное слово.
+                if (!filtered && advancedEnabled && advancedCompact && !plainBadwords.isEmpty()) {
+                    String canonical = AdvancedProfanityFilter.canonicalize(message, advancedHomoglyphs, advancedDigits);
+                    String compact = AdvancedProfanityFilter.compact(canonical);
+                    if (AdvancedProfanityFilter.containsCompactMatch(compact, plainBadwords, advancedMinFuzzyLength)) {
+                        triggeredSwear = true;
+                        message = repl.equalsIgnoreCase("NONE") ? "" : repl.repeat(message.length());
+                    }
                 }
             }
         }
@@ -511,6 +552,40 @@ public class FilterEngine {
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd);
             }
         });
+    }
+
+    /**
+     * Fires the informational ChatViolationEvent and forwards the signal to LoveBehavior (if
+     * present) via reflection. Both are best-effort — a listener throwing, or LoveBehavior being
+     * absent, must never affect the filtering decision that already happened in processChat.
+     */
+    private void fireViolation(Player player, me.lovelace.lovechatfilter.api.events.ChatViolationEvent.ViolationType type, int severity) {
+        if (!autoModEnabled) return;
+        try {
+            Bukkit.getPluginManager().callEvent(new me.lovelace.lovechatfilter.api.events.ChatViolationEvent(player, type, severity));
+        } catch (Exception e) {
+            plugin.getLogger().fine("Ошибка при вызове ChatViolationEvent: " + e.getMessage());
+        }
+        loveBehaviorBridge.reportViolation(player, type.name(), severity);
+    }
+
+    /**
+     * Pure scan for configured courteous phrases — never touches {@code originalMessage} and
+     * never affects the filtering outcome. Runs on the raw player text (not the caps/badwords
+     * processed one) so it reflects what the player actually typed.
+     */
+    private void scanPolitePhrase(Player player, String originalMessage) {
+        if (!autoModEnabled || politePhrasePattern == null) return;
+        Matcher m = politePhrasePattern.matcher(originalMessage);
+        if (!m.find()) return;
+        String phrase = m.group();
+
+        try {
+            Bukkit.getPluginManager().callEvent(new me.lovelace.lovechatfilter.api.events.PolitePhraseEvent(player, phrase));
+        } catch (Exception e) {
+            plugin.getLogger().fine("Ошибка при вызове PolitePhraseEvent: " + e.getMessage());
+        }
+        loveBehaviorBridge.reportPolitePhrase(player, phrase);
     }
 
     private void playConfigSound(Player player, String path) {

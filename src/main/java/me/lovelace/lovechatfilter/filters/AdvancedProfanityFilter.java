@@ -16,10 +16,50 @@ import java.util.regex.Pattern;
 final class AdvancedProfanityFilter {
 
     private static final Pattern WORD_TOKEN = Pattern.compile("(?U)\\p{L}+");
+    private static final Pattern NON_LETTER = Pattern.compile("(?U)[^\\p{L}]+");
+    private static final Pattern STRETCHED_LETTER = Pattern.compile("(?U)(\\p{L})\\1{2,}");
 
     private AdvancedProfanityFilter() {}
 
     record Result(String text, boolean wasFiltered) {}
+
+    /**
+     * Collapses a canonical (homoglyph/digit-mapped) message down to bare letters, with any
+     * run of 3+ identical letters squashed to 1. Catches evasion that spreads a word across
+     * spaces/punctuation ("с у . к а") or stretches it ("сууукааа") — both defeat the smart
+     * regex's per-letter {@code [\W_]*} gaps once combined with homoglyphs, since that regex
+     * still expects letters in the original left-to-right order but doesn't reason about
+     * lookahead across many separators as cheaply as a plain substring check does. Position
+     * information is intentionally discarded: callers that need offsets should fall back to
+     * whole-message replacement when only the compact form matches.
+     */
+    static String compact(String canonicalText) {
+        String noSeparators = NON_LETTER.matcher(canonicalText).replaceAll("");
+        return STRETCHED_LETTER.matcher(noSeparators).replaceAll("$1");
+    }
+
+    /** Same collapsing rule applied to a single badword, so both sides compare on equal footing. */
+    static String compactWord(String word) {
+        String noSeparators = NON_LETTER.matcher(word).replaceAll("");
+        return STRETCHED_LETTER.matcher(noSeparators).replaceAll("$1");
+    }
+
+    /**
+     * Cheap substring scan for badwords hidden by spacing/punctuation/letter-stretching once
+     * both sides are reduced to their compact form. This intentionally cannot report offsets
+     * (the compaction is not 1:1 with the original text), so it only answers "does this message
+     * contain a badword once evasion is stripped away" — callers must censor the whole message,
+     * not attempt a partial replace.
+     */
+    static boolean containsCompactMatch(String compactText, List<String> badwords, int minLength) {
+        for (String badword : badwords) {
+            String compactBadword = compactWord(badword);
+            if (compactBadword.length() >= minLength && compactText.contains(compactBadword)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     static String canonicalize(String text, boolean homoglyphs, boolean digits) {
         char[] chars = text.toCharArray();
