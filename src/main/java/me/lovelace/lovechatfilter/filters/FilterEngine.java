@@ -21,28 +21,31 @@ public class FilterEngine {
     private final MiniMessage mm = MiniMessage.miniMessage();
     private final me.lovelace.lovechatfilter.integration.LoveBehaviorBridge loveBehaviorBridge;
 
-    private Pattern profanityPattern;
-    private Pattern ipPattern;
-    private Pattern adsWhitelistPattern;
-    private Pattern goodwordsPattern;
-    private Pattern additionalPattern;
-    private Pattern politePhrasePattern;
+    // Written by reloadCache() (main thread, via /lovechatfilteradmin reload) and read from
+    // async chat-processing threads on every message — volatile so a reload becomes visible to
+    // other threads immediately instead of racing on the Java Memory Model.
+    private volatile Pattern profanityPattern;
+    private volatile Pattern ipPattern;
+    private volatile Pattern adsWhitelistPattern;
+    private volatile Pattern goodwordsPattern;
+    private volatile Pattern additionalPattern;
+    private volatile Pattern politePhrasePattern;
 
-    private boolean advancedEnabled;
-    private boolean advancedHomoglyphs;
-    private boolean advancedDigits;
-    private boolean advancedFuzzy;
-    private boolean advancedCompact;
-    private int advancedMaxTypoDistance;
-    private int advancedMinFuzzyLength;
-    private List<String> plainBadwords = List.of();
+    private volatile boolean advancedEnabled;
+    private volatile boolean advancedHomoglyphs;
+    private volatile boolean advancedDigits;
+    private volatile boolean advancedFuzzy;
+    private volatile boolean advancedCompact;
+    private volatile int advancedMaxTypoDistance;
+    private volatile int advancedMinFuzzyLength;
+    private volatile List<String> plainBadwords = List.of();
 
-    private int capsPercentThreshold;
-    private boolean bwSignFilter, bwBookFilter, bwItemFilter;
-    private boolean adsSignFilter, adsBookFilter, adsItemFilter;
+    private volatile int capsPercentThreshold;
+    private volatile boolean bwSignFilter, bwBookFilter, bwItemFilter;
+    private volatile boolean adsSignFilter, adsBookFilter, adsItemFilter;
 
-    private boolean autoModEnabled;
-    private int severityProfanity, severitySpam, severityCaps, severityAds;
+    private volatile boolean autoModEnabled;
+    private volatile int severityProfanity, severitySpam, severityCaps, severityAds;
 
     private final Cache<UUID, Long> lastMessageTime = Caffeine.newBuilder()
             .maximumSize(10000)
@@ -520,7 +523,8 @@ public class FilterEngine {
         double cd = (message.equalsIgnoreCase(lastText))
                 ? config.getDouble("anti-spam.same-message-cooldown-seconds", 2.0)
                 : config.getDouble("anti-spam.message-cooldown-seconds", 1.5);
-        long diff = now - (lastMessageTime.getIfPresent(uuid) != null ? lastMessageTime.getIfPresent(uuid) : 0L);
+        Long lastTime = lastMessageTime.getIfPresent(uuid);
+        long diff = now - (lastTime != null ? lastTime : 0L);
         if (diff < (cd * 1000.0)) return (cd * 1000.0 - diff) / 1000.0;
         lastMessageTime.put(uuid, now);
         lastMessageText.put(uuid, message);
