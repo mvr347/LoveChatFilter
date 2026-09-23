@@ -5,6 +5,7 @@ import me.lovelace.lovechatfilter.commands.Commands;
 import me.lovelace.lovechatfilter.commands.LoveChatFilterAdminCommand;
 import me.lovelace.lovechatfilter.filters.FilterEngine;
 import me.lovelace.lovechatfilter.listeners.ChatListener;
+import me.lovelace.lovechatfilter.listeners.CommandTabFilterListener;
 import me.lovelace.lovechatfilter.managers.ConfigManager;
 import me.lovelace.lovechatfilter.managers.DatabaseManager;
 import me.lovelace.lovechatfilter.managers.GrammarManager;
@@ -19,6 +20,7 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
     private DatabaseManager databaseManager;
     private FilterEngine filterEngine;
     private GrammarManager grammarManager;
+    private CommandTabFilterListener commandTabFilterListener;
 
     @Override
     public void onEnable() {
@@ -28,6 +30,9 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
         this.filterEngine = new FilterEngine(this);
 
         getServer().getPluginManager().registerEvents(new ChatListener(this), this);
+
+        this.commandTabFilterListener = new CommandTabFilterListener(this);
+        getServer().getPluginManager().registerEvents(commandTabFilterListener, this);
 
         Commands cmdHandler = new Commands(this);
 
@@ -63,12 +68,14 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
         if (configManager != null) configManager.reloadConfig();
         if (grammarManager != null) grammarManager.reload();
         if (filterEngine != null) filterEngine.reloadCache();
+        if (commandTabFilterListener != null) commandTabFilterListener.reload();
     }
 
     public ConfigManager getConfigManager() { return configManager; }
     public DatabaseManager getDatabaseManager() { return databaseManager; }
     public FilterEngine getFilterEngine() { return filterEngine; }
     public GrammarManager getGrammarManager() { return grammarManager; }
+    public CommandTabFilterListener getCommandTabFilterListener() { return commandTabFilterListener; }
 
     @Override
     public boolean isProfane(String text) {
