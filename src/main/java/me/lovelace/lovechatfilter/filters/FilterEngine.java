@@ -190,7 +190,7 @@ public class FilterEngine {
             double remainingTime = checkSpam(player, originalMessage);
             if (remainingTime > 0) {
                 triggerCommands("anti-spam.commands-on-detect", player, originalMessage, originalMessage, "");
-                cm.sendMessage(player, "anti-spam.message", "{time}", String.format("%.1f", remainingTime));
+                sendConfigMessage(player, "anti-spam.message", "{time}", String.format("%.1f", remainingTime));
                 playConfigSound(player, "anti-spam.sound");
                 fireViolation(player, me.lovelace.lovechatfilter.api.events.ChatViolationEvent.ViolationType.SPAM, severitySpam);
                 return new ProcessResult(originalMessage, true);
@@ -226,7 +226,7 @@ public class FilterEngine {
         }
 
         if (result.triggeredCaps) {
-            cm.sendMessage(player, "anti-caps.message", null, null);
+            sendConfigMessage(player, "anti-caps.message", null, null);
             playConfigSound(player, "anti-caps.sound");
             triggerCommands("anti-caps.commands-on-detect", player, result.processedText, originalMessage, "");
             fireViolation(player, me.lovelace.lovechatfilter.api.events.ChatViolationEvent.ViolationType.CAPS, severityCaps);
@@ -590,6 +590,25 @@ public class FilterEngine {
             plugin.getLogger().fine("Ошибка при вызове PolitePhraseEvent: " + e.getMessage());
         }
         loveBehaviorBridge.reportPolitePhrase(player, phrase);
+    }
+
+    /**
+     * Sends a player-facing message whose text lives in config.yml (e.g. "anti-spam.message",
+     * "anti-caps.message") - NOT in messages.yml. These two are distinct FileConfiguration
+     * objects (see ConfigManager); ConfigManager#sendMessage only ever reads from messages.yml,
+     * so calling it with a config.yml-only path such as "anti-spam.message" silently found nothing
+     * (empty string -> early return) and the player never got warned at all, even though the
+     * message text was right there in config.yml with a sensible default. Mirrors the existing
+     * goodwords-detector cooldown-message handling below, which already reads config.yml directly
+     * for the same reason.
+     */
+    private void sendConfigMessage(Player player, String path, String placeholder, String value) {
+        String raw = plugin.getConfigManager().getConfig().getString(path);
+        if (raw == null || raw.isEmpty() || raw.equalsIgnoreCase("NONE")) return;
+        if (placeholder != null && value != null) {
+            raw = raw.replace(placeholder, value);
+        }
+        player.sendMessage(mm.deserialize(raw));
     }
 
     private void playConfigSound(Player player, String path) {
