@@ -41,3 +41,6 @@ permissions:
   lovechatfilter.bypass.spam:
     description: Право на обход фильтра спама
     default: op
+  lovechatfilter.tabcomplete.bypass:
+    description: Право видеть все команды в автодополнении (TAB), включая англоязычные
+    default: op
