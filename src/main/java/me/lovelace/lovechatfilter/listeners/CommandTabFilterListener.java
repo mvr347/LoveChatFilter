@@ -24,7 +24,13 @@ import java.util.Set;
  * down to THIS ecosystem's own commands, not "anything Cyrillic from any plugin" - a third-party
  * plugin's namespaced command (e.g. {@code deluxemenus:меню}) can have a Cyrillic label purely by
  * coincidence and still be noise the server owner doesn't want suggested. A blocked command is
- * always hidden regardless of script. See {@link #isCommandAllowed(String)}.
+ * always hidden regardless of script.
+ * <p>
+ * A plugin-namespaced label ({@code plugin:command}) never gets the Cyrillic (or
+ * {@code hide-english-commands: false}) free pass either, for the same reason: typing the
+ * namespace prefix would otherwise let a player browse every command on the server one by one,
+ * defeating the whole filter. Namespaced forms only show up when explicitly listed in
+ * {@code command-tab-filter.allowed-commands}. See {@link #isCommandAllowed(String)}.
  */
 public class CommandTabFilterListener implements Listener {
 
@@ -80,8 +86,9 @@ public class CommandTabFilterListener implements Listener {
         if (cmd == null)
             return false;
         String fullLower = cmd.toLowerCase().trim();
+        boolean namespaced = fullLower.contains(":");
         String lower = fullLower;
-        if (lower.contains(":")) {
+        if (namespaced) {
             lower = lower.substring(lower.indexOf(':') + 1);
         }
         // Block-list wins over everything below, including the Cyrillic pass-through: a
@@ -92,6 +99,15 @@ public class CommandTabFilterListener implements Listener {
         // plugin registers it).
         if (blockedCommands.contains(fullLower) || blockedCommands.contains(lower)) {
             return false;
+        }
+        // A plugin-namespaced label NEVER gets the Cyrillic (or hideEnglish=false) free pass -
+        // typing "anyplugin:anycommand" would otherwise reveal every command on the server one
+        // by one regardless of what this filter is supposed to hide, since the stripped label is
+        // checked the same as a bare command. Namespaced forms are shown only when explicitly
+        // allow-listed (2026-09-25: this closed the "not just deluxemenus, you can browse ALL
+        // commands this way" report - see command-tab-filter.allowed-commands).
+        if (namespaced) {
+            return allowedCommands.contains(lower) || allowedCommands.contains(fullLower);
         }
         if (isCyrillic(lower)) {
             return true;
