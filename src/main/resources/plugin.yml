@@ -42,5 +42,5 @@ permissions:
     description: Право на обход фильтра спама
     default: op
   lovechatfilter.tabcomplete.bypass:
-    description: Право видеть все команды в автодополнении (TAB), включая англоязычные
+    description: Право видеть все команды в автодополнении (TAB), включая англоязычные и явно заблокированные (blocked-commands)
     default: op
