@@ -1,5 +1,6 @@
 package me.lovelace.lovechatfilter.filters;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -19,23 +20,63 @@ final class AdvancedProfanityFilter {
     private static final Pattern NON_LETTER = Pattern.compile("(?U)[^\\p{L}]+");
     private static final Pattern STRETCHED_LETTER = Pattern.compile("(?U)(\\p{L})\\1{2,}");
 
+    /**
+     * Fragments this short or shorter are allowed to chain-merge across a separator into a
+     * single compact unit (catches "с у к а" split letter-by-letter); a token longer than this
+     * is treated as a real, already-whole word and never absorbs a neighboring fragment. Without
+     * this cap, compact() used to concatenate the ENTIRE message before substring-matching, so
+     * two unrelated adjacent words could spell a badword across their boundary - e.g. "с указкой"
+     * compacted to "суказкой", which contains "сука" and censored the whole message even when
+     * the actual trigger was an innocent word like "скрафить" sitting nearby in the same
+     * sentence (bug reported 2026-09-26).
+     */
+    private static final int COMPACT_MERGE_MAX_TOKEN_LENGTH = 2;
+
     private AdvancedProfanityFilter() {}
 
     record Result(String text, boolean wasFiltered) {}
 
     /**
-     * Collapses a canonical (homoglyph/digit-mapped) message down to bare letters, with any
-     * run of 3+ identical letters squashed to 1. Catches evasion that spreads a word across
+     * Splits a canonical (homoglyph/digit-mapped) message into "compact chains": runs of
+     * letter-tokens joined back together with their separators stripped and any run of 3+
+     * identical letters squashed to 1. Catches evasion that spreads a word across
      * spaces/punctuation ("с у . к а") or stretches it ("сууукааа") — both defeat the smart
      * regex's per-letter {@code [\W_]*} gaps once combined with homoglyphs, since that regex
      * still expects letters in the original left-to-right order but doesn't reason about
-     * lookahead across many separators as cheaply as a plain substring check does. Position
-     * information is intentionally discarded: callers that need offsets should fall back to
-     * whole-message replacement when only the compact form matches.
+     * lookahead across many separators as cheaply as a plain substring check does.
+     *
+     * Only tokens of length &le; {@link #COMPACT_MERGE_MAX_TOKEN_LENGTH} chain-merge with their
+     * neighbors; a longer token (a real, already-whole word) always starts its own chain and
+     * never absorbs an adjacent word. Each returned chain still has no offsets 1:1 with the
+     * original text, so callers that match against it must censor the whole message, not attempt
+     * a partial replace.
      */
-    static String compact(String canonicalText) {
-        String noSeparators = NON_LETTER.matcher(canonicalText).replaceAll("");
-        return STRETCHED_LETTER.matcher(noSeparators).replaceAll("$1");
+    static List<String> compactChains(String canonicalText) {
+        Matcher m = WORD_TOKEN.matcher(canonicalText);
+        List<String> chains = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        while (m.find()) {
+            String token = m.group();
+            if (token.length() <= COMPACT_MERGE_MAX_TOKEN_LENGTH) {
+                current.append(token);
+                continue;
+            }
+            flushChain(chains, current);
+            chains.add(collapseStretched(token));
+        }
+        flushChain(chains, current);
+        return chains;
+    }
+
+    private static void flushChain(List<String> chains, StringBuilder current) {
+        if (!current.isEmpty()) {
+            chains.add(collapseStretched(current.toString()));
+            current.setLength(0);
+        }
+    }
+
+    private static String collapseStretched(String s) {
+        return STRETCHED_LETTER.matcher(s).replaceAll("$1");
     }
 
     /** Same collapsing rule applied to a single badword, so both sides compare on equal footing. */
@@ -51,11 +92,12 @@ final class AdvancedProfanityFilter {
      * contain a badword once evasion is stripped away" — callers must censor the whole message,
      * not attempt a partial replace.
      */
-    static boolean containsCompactMatch(String compactText, List<String> badwords, int minLength) {
+    static boolean containsCompactMatch(List<String> compactChains, List<String> badwords, int minLength) {
         for (String badword : badwords) {
             String compactBadword = compactWord(badword);
-            if (compactBadword.length() >= minLength && compactText.contains(compactBadword)) {
-                return true;
+            if (compactBadword.length() < minLength) continue;
+            for (String chain : compactChains) {
+                if (chain.contains(compactBadword)) return true;
             }
         }
         return false;

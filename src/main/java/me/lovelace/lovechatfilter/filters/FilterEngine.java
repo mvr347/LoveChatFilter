@@ -327,8 +327,8 @@ public class FilterEngine {
             if (fr.wasFiltered()) return true;
         }
         if (advancedCompact && !plainBadwords.isEmpty()) {
-            String compact = AdvancedProfanityFilter.compact(canonical);
-            if (AdvancedProfanityFilter.containsCompactMatch(compact, plainBadwords, advancedMinFuzzyLength)) return true;
+            var compactChains = AdvancedProfanityFilter.compactChains(canonical);
+            if (AdvancedProfanityFilter.containsCompactMatch(compactChains, plainBadwords, advancedMinFuzzyLength)) return true;
         }
         return false;
     }
@@ -378,13 +378,20 @@ public class FilterEngine {
                     if (fr.wasFiltered()) { triggeredSwear = true; message = fr.text(); filtered = true; }
                 }
 
-                // Компактное сравнение (пробелы/пунктуация вырезаны, растянутые буквы схлопнуты)
-                // не даёт смещений для точечной замены — при срабатывании только этого слоя
-                // цензурим сообщение целиком, а не отдельное слово.
+                // Компактное сравнение (пробелы/пунктуация вырезаны внутри коротких фрагментов,
+                // растянутые буквы схлопнуты) не даёт смещений для точечной замены — при
+                // срабатывании только этого слоя цензурим сообщение целиком, а не отдельное
+                // слово. 2026-09-26: раньше compact() склеивал ВСЁ сообщение в одну строку, из-за
+                // чего соседние настоящие слова могли случайно сложиться в бранное слово на
+                // стыке (например "с указкой" → "суказкой" содержит "сука") и цензурили всё
+                // сообщение целиком, включая ни в чём не повинные слова вроде "скрафить" рядом.
+                // Теперь compactChains() сливает только короткие фрагменты (см.
+                // COMPACT_MERGE_MAX_TOKEN_LENGTH) — настоящее слово длиннее порога никогда не
+                // склеивается с соседями.
                 if (!filtered && advancedEnabled && advancedCompact && !plainBadwords.isEmpty()) {
                     String canonical = AdvancedProfanityFilter.canonicalize(message, advancedHomoglyphs, advancedDigits);
-                    String compact = AdvancedProfanityFilter.compact(canonical);
-                    if (AdvancedProfanityFilter.containsCompactMatch(compact, plainBadwords, advancedMinFuzzyLength)) {
+                    var compactChains = AdvancedProfanityFilter.compactChains(canonical);
+                    if (AdvancedProfanityFilter.containsCompactMatch(compactChains, plainBadwords, advancedMinFuzzyLength)) {
                         triggeredSwear = true;
                         message = repl.equalsIgnoreCase("NONE") ? "" : repl.repeat(message.length());
                     }
