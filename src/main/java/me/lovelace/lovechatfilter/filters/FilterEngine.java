@@ -552,17 +552,27 @@ public class FilterEngine {
     private void triggerCommands(String path, Player player, String msg, String orig, String target) {
         List<String> cmds = plugin.getConfigManager().getConfig().getStringList(path);
         if (cmds.isEmpty()) return;
+        // User-controlled text must never reach PlaceholderAPI: "%server_ip%" typed in chat would be
+        // expanded inside a console command. Expand PAPI on the template first, then insert the
+        // text with '%' stripped.
+        final String safeMsg = stripPercent(msg);
+        final String safeOrig = stripPercent(orig);
+        final String safeTarget = stripPercent(target);
         Bukkit.getScheduler().runTask(plugin, () -> {
+            boolean papi = Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI");
             for (String s : cmds) {
-                String cmd = s.replace("%player%", player.getName())
-                        .replace("%message%", msg)
-                        .replace("%original%", orig)
-                        .replace("%target%", target);
-                if (Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI"))
-                    cmd = PlaceholderAPI.setPlaceholders(player, cmd);
+                String cmd = papi ? PlaceholderAPI.setPlaceholders(player, s) : s;
+                cmd = cmd.replace("%player%", player.getName())
+                        .replace("%message%", safeMsg)
+                        .replace("%original%", safeOrig)
+                        .replace("%target%", safeTarget);
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd);
             }
         });
+    }
+
+    static String stripPercent(String text) {
+        return text == null ? "" : text.replace("%", "");
     }
 
     /**

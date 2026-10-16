@@ -53,7 +53,7 @@
         <dependency>
             <groupId>com.github.mvr347</groupId>
             <artifactId>LoveChat</artifactId>
-            <version>e4f5ac7f73</version>
+            <version>5a76b98f42</version>
             <scope>provided</scope>
         </dependency>
 
@@ -62,6 +62,13 @@
             <artifactId>lovecore-api</artifactId>
             <version>d97cef40ff</version>
             <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.10.2</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
