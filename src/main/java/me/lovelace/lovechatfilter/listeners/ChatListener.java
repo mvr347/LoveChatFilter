@@ -22,14 +22,13 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BookMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 
 @SuppressWarnings({"deprecation", "UnstableApiUsage"})
 public class ChatListener implements Listener {
     private final LoveChatFilter acf;
-    private Field lovechatHistoryField;
+    private final java.util.concurrent.atomic.AtomicBoolean echoApiWarned = new java.util.concurrent.atomic.AtomicBoolean();
 
     public ChatListener(LoveChatFilter acf) {
         this.acf = acf;
@@ -110,59 +109,13 @@ public class ChatListener implements Listener {
 
     private void removeLovechatPacketEcho(int messageId) {
         try {
-            Object chatHistory = getLovechatHistoryCache();
-            if (chatHistory == null) return;
-
-            var getIfPresent = chatHistory.getClass().getMethod("getIfPresent", Object.class);
-            getIfPresent.setAccessible(true);
-
-            // Use a snapshot to avoid ConcurrentModificationException if players join/leave
-            List<Player> playerSnapshot = new ArrayList<>(Bukkit.getOnlinePlayers());
-            for (Player player : playerSnapshot) {
-                Object historyObj = getIfPresent.invoke(chatHistory, player.getUniqueId());
-                if (!(historyObj instanceof List<?> history)) continue;
-
-                synchronized (history) {
-                    for (int i = 0; i < history.size(); i++) {
-                        Object lineObj = history.get(i);
-                        if (!(lineObj instanceof Lovechat.ChatLine line)) continue;
-                        if (line.messageId() == messageId && !line.isPluginMessage()) {
-                            String expectedPlain = PlainTextComponentSerializer.plainText().serialize(line.component());
-                            removeFollowingEchoes(history, i + 1, expectedPlain);
-                            break;
-                        }
-                    }
-                }
+            Lovechat.getInstance().removePluginEchoes(messageId);
+        } catch (RuntimeException | LinkageError e) {
+            // Older LoveChat without the public API: warn once, never break filtering.
+            if (echoApiWarned.compareAndSet(false, true)) {
+                acf.getLogger().warning("LoveChat does not provide removePluginEchoes (" + e + "); "
+                        + "packet echo cleanup is disabled. Update LoveChat.");
             }
-        } catch (ReflectiveOperationException e) {
-            acf.getLogger().warning("Failed to remove lovechat packet echo (reflection error): " + e.getMessage());
-        } catch (RuntimeException e) {
-            acf.getLogger().severe("Unexpected error in removeLovechatPacketEcho: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    private Object getLovechatHistoryCache() throws ReflectiveOperationException {
-        Lovechat lovechat = Lovechat.getInstance();
-        if (lovechatHistoryField == null) {
-            Field field = Lovechat.class.getDeclaredField("chatHistory");
-            field.setAccessible(true);
-            lovechatHistoryField = field;
-        }
-        return lovechatHistoryField.get(lovechat);
-    }
-
-    private void removeFollowingEchoes(List<?> history, int startIndex, String expectedPlain) {
-        int index = startIndex;
-        while (index < history.size()) {
-            Object candidateObj = history.get(index);
-            if (!(candidateObj instanceof Lovechat.ChatLine candidate)) return;
-            if (!candidate.isPluginMessage()) return;
-
-            String candidatePlain = PlainTextComponentSerializer.plainText().serialize(candidate.component());
-            if (!candidatePlain.equals(expectedPlain)) return;
-
-            history.remove(index);
         }
     }
 

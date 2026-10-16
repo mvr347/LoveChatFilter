@@ -3,7 +3,6 @@ package me.lovelace.lovechatfilter.managers;
 import me.lovelace.lovechatfilter.LoveChatFilter;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.github.benmanes.caffeine.cache.LoadingCache;
 import org.bukkit.Bukkit;
 
 import java.io.File;
@@ -16,10 +15,12 @@ public class DatabaseManager {
     private final LoveChatFilter plugin;
     private Connection connection;
     private volatile boolean isShuttingDown = false;
-    private final LoadingCache<UUID, Boolean> grammarCache = Caffeine.newBuilder()
+    // Plain cache (not LoadingCache): a miss must never run SQL on the chat/command thread.
+    private final Cache<UUID, Boolean> grammarCache = Caffeine.newBuilder()
             .maximumSize(10000)
             .expireAfterAccess(1, TimeUnit.HOURS)
-            .build(uuid -> loadGrammarEnabledFromDatabase(uuid));
+            .build();
+    private final java.util.Set<UUID> grammarLoading = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public DatabaseManager(LoveChatFilter plugin) {
         this.plugin = plugin;
@@ -59,18 +60,26 @@ public class DatabaseManager {
         }
     }
 
+    /** Hot-path read: never touches the database. Unknown state reads as false and triggers an async load. */
     public boolean isGrammarEnabled(UUID uuid) {
-        try {
-            return grammarCache.get(uuid);
-        } catch (Exception e) {
-            plugin.getLogger().warning("Error loading grammar state for " + uuid + ": " + e.getMessage());
-            return false;
-        }
+        Boolean cached = grammarCache.getIfPresent(uuid);
+        if (cached != null) return cached;
+        preloadGrammarEnabled(uuid);
+        return false;
     }
 
+    /** Loads the player's grammar flag asynchronously (called on join and on cache miss). */
     public void preloadGrammarEnabled(UUID uuid) {
-        // With LoadingCache, this is now a no-op since get() will auto-load.
-        // Kept for compatibility with existing code.
+        if (isShuttingDown || grammarCache.getIfPresent(uuid) != null || !grammarLoading.add(uuid)) return;
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            try {
+                boolean enabled = loadGrammarEnabledFromDatabase(uuid);
+                // putIfAbsent: a toggle made while the load was running must win over the stale DB value.
+                grammarCache.asMap().putIfAbsent(uuid, enabled);
+            } finally {
+                grammarLoading.remove(uuid);
+            }
+        });
     }
 
     private boolean loadGrammarEnabledFromDatabase(UUID uuid) {
