@@ -18,6 +18,7 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
 
     private ConfigManager configManager;
     private DatabaseManager databaseManager;
+    private me.lovelace.lovechatfilter.expansion.FilterPlaceholderExpansion placeholderExpansion;
     private FilterEngine filterEngine;
     private GrammarManager grammarManager;
     private CommandTabFilterListener commandTabFilterListener;
@@ -30,6 +31,11 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
         this.filterEngine = new FilterEngine(this);
 
         getServer().getPluginManager().registerEvents(new ChatListener(this), this);
+
+        if (getServer().getPluginManager().isPluginEnabled("PlaceholderAPI")) {
+            placeholderExpansion = new me.lovelace.lovechatfilter.expansion.FilterPlaceholderExpansion(this);
+            placeholderExpansion.register();
+        }
 
         this.commandTabFilterListener = new CommandTabFilterListener(this);
         getServer().getPluginManager().registerEvents(commandTabFilterListener, this);
@@ -61,6 +67,10 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
     @Override
     public void onDisable() {
         HandlerList.unregisterAll(this);
+        if (placeholderExpansion != null) {
+            placeholderExpansion.unregister();
+            placeholderExpansion = null;
+        }
         if (databaseManager != null) databaseManager.close();
     }
 
