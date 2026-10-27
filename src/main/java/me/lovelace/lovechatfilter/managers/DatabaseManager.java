@@ -68,6 +68,13 @@ public class DatabaseManager {
         return false;
     }
 
+    /** Cached grammar flag, or null while it is still loading (a load is started on a miss). */
+    public Boolean grammarState(UUID uuid) {
+        Boolean cached = grammarCache.getIfPresent(uuid);
+        if (cached == null) preloadGrammarEnabled(uuid);
+        return cached;
+    }
+
     /** Loads the player's grammar flag asynchronously (called on join and on cache miss). */
     public void preloadGrammarEnabled(UUID uuid) {
         if (isShuttingDown || grammarCache.getIfPresent(uuid) != null || !grammarLoading.add(uuid)) return;
