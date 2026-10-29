@@ -80,8 +80,6 @@ public class Commands implements CommandExecutor, TabCompleter {
         // чтобы команда не «молчала» для тех, кто по привычке набирает /lcf reload.
         if (sender.hasPermission("lovechatfilter.reload")) {
             plugin.getConfigManager().sendMessage(sender, "reload-moved", null, null);
-        } else {
-            plugin.getConfigManager().sendMessage(sender, "no-permission", null, null);
         }
     }
 
