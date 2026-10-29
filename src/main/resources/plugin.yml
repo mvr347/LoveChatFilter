@@ -20,6 +20,7 @@ commands:
   lovechatfilteradmin:
     description: Административные команды LoveChatFilter (reload и т.д.)
     permission: lovechatfilter.reload
+    permission-message: ""
 
 permissions:
   lovechatfilter.reload:

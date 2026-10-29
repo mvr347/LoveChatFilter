@@ -37,8 +37,8 @@ public class LoveChatFilterAdminCommand implements CommandExecutor, TabCompleter
     @Override
     @SuppressWarnings("NullableProblems")
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
+        // Silent on purpose: a command the sender cannot use is simply not theirs.
         if (!sender.hasPermission("lovechatfilter.reload")) {
-            plugin.getConfigManager().sendMessage(sender, "no-permission", null, null);
             return true;
         }
 

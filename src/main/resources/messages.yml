@@ -9,7 +9,6 @@ prefix: "<gray>[<gold>LCF</gold>]</gray> "
 reload-success: "<green>Конфигурация и кэш успешно перезагружены!</green>"
 
 # Ошибки прав и синтаксиса
-no-permission: "<red>У вас нет прав для выполнения этой команды.</red>"
 only-players: "<red>Команда доступна только игрокам.</red>"
 invalid-number: "<red>Ошибка: Укажите корректное число.</red>"
 
