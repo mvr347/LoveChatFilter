@@ -78,6 +78,7 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
             placeholderExpansion.unregister();
             placeholderExpansion = null;
         }
+        if (wordLists != null) wordLists.flush();
         if (databaseManager != null) databaseManager.close();
     }
 
@@ -98,5 +99,10 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
     @Override
     public boolean isProfane(String text) {
         return filterEngine.isProfane(text);
+    }
+
+    @Override
+    public boolean containsAdvertising(String text) {
+        return filterEngine.hasAdvertising(text);
     }
 }

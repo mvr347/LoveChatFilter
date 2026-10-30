@@ -82,4 +82,30 @@ class WordListsTest {
         lists.add(BAD, "второе", "A", Set.of());
         assertEquals("второе", lists.list(BAD).get(0).word());
     }
+
+    @Test
+    void addThenRemoveEndsWithoutTheWordEvenWhenTheExecutorRunsTasksInReverse() {
+        var store = new MemoryStore();
+        // Async Bukkit tasks give no ordering guarantee; model the worst case.
+        var queued = new java.util.ArrayDeque<Runnable>();
+        var lists = new WordLists(store, queued::push, e -> {});
+        lists.load();
+        lists.add(BAD, "дурак", "Admin", Set.of());
+        lists.remove(BAD, "дурак");
+        while (!queued.isEmpty()) queued.pop().run();
+        assertTrue(store.rows.isEmpty(), store.rows.toString());
+    }
+
+    @Test
+    void flushWritesWhatIsStillWaiting() {
+        var store = new MemoryStore();
+        var queued = new java.util.ArrayDeque<Runnable>();
+        var lists = new WordLists(store, queued::add, e -> {});
+        lists.load();
+        lists.add(BAD, "дурак", "Admin", Set.of());
+        lists.flush();
+        assertEquals(1, store.rows.size());
+        queued.forEach(Runnable::run);
+        assertEquals(1, store.rows.size());
+    }
 }

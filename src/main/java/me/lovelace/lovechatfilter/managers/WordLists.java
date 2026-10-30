@@ -9,7 +9,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.ArrayDeque;
+import java.util.Queue;
 import java.util.concurrent.Executor;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
 /**
@@ -31,6 +34,12 @@ public final class WordLists {
     private final Executor io;
     private final Consumer<String> onError;
     private final Map<Kind, Map<String, Entry>> data = new EnumMap<>(Kind.class);
+
+    // Database writes wait here in submission order. Bukkit async tasks run in no particular order,
+    // so "add then remove" could reach the database as "remove then add" and bring the word back
+    // after a restart. Whoever drains holds the lock and takes operations strictly first-in-first-out.
+    private final Queue<Runnable> pending = new ArrayDeque<>();
+    private final ReentrantLock drainLock = new ReentrantLock();
 
     public WordLists(WordStore store, Executor io, Consumer<String> onError) {
         this.store = store;
@@ -59,7 +68,7 @@ public final class WordLists {
         Entry entry = new Entry(kind, word, addedBy, System.currentTimeMillis() / 1000L);
         if (data.get(kind).putIfAbsent(word, entry) != null)
             throw new IllegalArgumentException("Это слово уже добавлено.");
-        io.execute(() -> {
+        persist(() -> {
             try {
                 store.saveWord(entry);
             } catch (RuntimeException e) {
@@ -78,7 +87,7 @@ public final class WordLists {
             return false;
         }
         if (data.get(kind).remove(word) == null) return false;
-        io.execute(() -> {
+        persist(() -> {
             try {
                 store.deleteWord(kind, word);
             } catch (RuntimeException e) {
@@ -86,6 +95,33 @@ public final class WordLists {
             }
         });
         return true;
+    }
+
+    private void persist(Runnable operation) {
+        synchronized (pending) {
+            pending.add(operation);
+        }
+        io.execute(this::flush);
+    }
+
+    /**
+     * Writes everything still waiting, in order, on the calling thread. The plugin calls it on
+     * shutdown so a word added a moment before a restart is not lost with a task that never started.
+     */
+    public void flush() {
+        drainLock.lock();
+        try {
+            while (true) {
+                Runnable next;
+                synchronized (pending) {
+                    next = pending.poll();
+                }
+                if (next == null) return;
+                next.run();
+            }
+        } finally {
+            drainLock.unlock();
+        }
     }
 
     public Set<String> words(Kind kind) {
