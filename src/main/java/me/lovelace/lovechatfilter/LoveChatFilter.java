@@ -9,6 +9,7 @@ import me.lovelace.lovechatfilter.listeners.CommandTabFilterListener;
 import me.lovelace.lovechatfilter.managers.ConfigManager;
 import me.lovelace.lovechatfilter.managers.DatabaseManager;
 import me.lovelace.lovechatfilter.managers.GrammarManager;
+import me.lovelace.lovechatfilter.managers.WordLists;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.event.HandlerList;
@@ -21,6 +22,7 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
     private me.lovelace.lovechatfilter.expansion.FilterPlaceholderExpansion placeholderExpansion;
     private FilterEngine filterEngine;
     private GrammarManager grammarManager;
+    private WordLists wordLists;
     private CommandTabFilterListener commandTabFilterListener;
 
     @Override
@@ -28,6 +30,11 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
         this.configManager = new ConfigManager(this);
         this.databaseManager = new DatabaseManager(this);
         this.grammarManager = new GrammarManager(this);
+        this.wordLists = new WordLists(
+                databaseManager,
+                task -> getServer().getScheduler().runTaskAsynchronously(this, task),
+                getLogger()::warning);
+        this.wordLists.load();
         this.filterEngine = new FilterEngine(this);
 
         getServer().getPluginManager().registerEvents(new ChatListener(this), this);
@@ -85,6 +92,7 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
     public DatabaseManager getDatabaseManager() { return databaseManager; }
     public FilterEngine getFilterEngine() { return filterEngine; }
     public GrammarManager getGrammarManager() { return grammarManager; }
+    public WordLists getWordLists() { return wordLists; }
     public CommandTabFilterListener getCommandTabFilterListener() { return commandTabFilterListener; }
 
     @Override

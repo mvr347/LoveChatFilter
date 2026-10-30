@@ -76,6 +76,21 @@ public class ConfigManager {
         sender.sendMessage(MiniMessage.miniMessage().deserialize(prefix + raw));
     }
 
+    /**
+     * Same as {@link #sendMessage(CommandSender, String, String, String)} with several placeholders.
+     * Values are escaped, so a word an admin typed (or a player wrote) can never inject MiniMessage tags.
+     */
+    public void sendMessage(CommandSender sender, String path, java.util.Map<String, String> values) {
+        String raw = messages.getString(path, "");
+        if (raw.isEmpty() || raw.equalsIgnoreCase("NONE")) return;
+        for (var entry : values.entrySet()) {
+            raw = raw.replace("{" + entry.getKey() + "}", MiniMessage.miniMessage().escapeTags(entry.getValue()));
+        }
+        String prefix = messages.getString("prefix", "");
+        if (prefix.equalsIgnoreCase("NONE")) prefix = "";
+        sender.sendMessage(MiniMessage.miniMessage().deserialize(prefix + raw));
+    }
+
     public FileConfiguration getConfig() { return config; }
 
     @SuppressWarnings("unused")
