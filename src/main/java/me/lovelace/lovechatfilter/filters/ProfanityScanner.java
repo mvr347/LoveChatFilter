@@ -27,6 +27,8 @@ import java.util.regex.Pattern;
 final class ProfanityScanner {
 
     private static final Pattern WORD_TOKEN = Pattern.compile("(?U)\\p{L}+");
+    /** Safe words may contain digits ("дурак123"), so they are cut out by letters-and-digits tokens. */
+    private static final Pattern SAFE_TOKEN = Pattern.compile("(?U)[\\p{L}\\d]+");
 
     record Settings(
             boolean advanced,
@@ -151,7 +153,7 @@ final class ProfanityScanner {
 
         StringBuilder out = new StringBuilder(text.length());
         boolean filtered = false;
-        Matcher words = WORD_TOKEN.matcher(text);
+        Matcher words = SAFE_TOKEN.matcher(text);
         int segmentStart = 0;
         while (words.find()) {
             if (!isSafe(words.group())) continue;

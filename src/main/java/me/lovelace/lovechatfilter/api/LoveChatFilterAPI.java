@@ -16,4 +16,14 @@ public interface LoveChatFilterAPI {
      * chat line, so a player's personal bypass doesn't extend to text that gets shown to everyone.
      */
     boolean isProfane(String text);
+
+    /**
+     * Whether {@code text} contains a link, address or server name the ads filter would catch,
+     * including a dot written as "(точка)", "[.]" or "(dot)" before a domain zone. Like
+     * {@link #isProfane}, it ignores per-player bypass permissions and is {@code false} when the
+     * ads-filter module is off. Default {@code false} so older implementations keep working.
+     */
+    default boolean containsAdvertising(String text) {
+        return false;
+    }
 }

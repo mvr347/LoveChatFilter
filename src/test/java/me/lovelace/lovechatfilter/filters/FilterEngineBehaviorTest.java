@@ -80,4 +80,30 @@ class FilterEngineBehaviorTest {
         assertFalse(engine.isProfane("скрафтить"));
         assertEquals("скрафтить", engine.processContent(player, "скрафтить", FilterEngine.ContentType.SIGN));
     }
+
+    @Test
+    void obfuscatedAdAfterADirectOneIsStillCensored() {
+        plugin.getConfig().set("ads-filter.patterns", java.util.List.of("\\.ru"));
+        engine.reloadCache();
+        var result = engine.processChat(player, "decoy.ru mysrv (точка) ru");
+        assertFalse(result.message.contains("mysrv"), result.message);
+    }
+
+    @Test
+    void advertisingCheckForOtherPlugins() {
+        assertTrue(engine.hasAdvertising("mysrv.ru"));
+        assertTrue(engine.hasAdvertising("mysrv (точка) ru"));
+        assertTrue(engine.hasAdvertising("play.mysrv.net"));
+        assertFalse(engine.hasAdvertising("Золотая Орда"));
+        assertFalse(engine.hasAdvertising("Точка сбора"));
+        assertFalse(engine.hasAdvertising(null));
+    }
+
+    @Test
+    void advertisingCheckRespectsTheWhitelistAndTheModuleSwitch() {
+        assertFalse(engine.hasAdvertising("vk.com/my_server_group"));
+        plugin.getConfig().set("modules.ads-filter", false);
+        engine.reloadCache();
+        assertFalse(engine.hasAdvertising("mysrv.ru"));
+    }
 }

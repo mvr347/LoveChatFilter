@@ -448,12 +448,22 @@ public class FilterEngine {
      */
     private FilterResult filterAds(String message, String repl) {
         FilterResult direct = applyRegexFilter(message, ipPattern, adsWhitelistPattern, repl);
-        if (direct.wasFiltered || !obfuscatedDots) return direct;
-        String normalised = TextRules.normalizeObfuscatedDots(message);
-        if (normalised.equals(message)) return direct;
+        if (!obfuscatedDots) return direct;
+        // Always look at what is left after the direct pass: an ordinary address in the same message
+        // must not hide a second, disguised one ("decoy.ru mysrv (точка) ru").
+        String rest = direct.text;
+        String normalised = TextRules.normalizeObfuscatedDots(rest);
+        if (normalised.equals(rest)) return direct;
         FilterResult hidden = applyRegexFilter(normalised, ipPattern, adsWhitelistPattern, repl);
         if (!hidden.wasFiltered) return direct;
         return new FilterResult(repl.equalsIgnoreCase("NONE") ? "" : repl.repeat(message.length()), true);
+    }
+
+    /** Whether the ads filter would touch this text; for other plugins, independent of bypass permissions. */
+    public boolean hasAdvertising(String text) {
+        if (text == null || text.isEmpty()) return false;
+        if (!plugin.getConfigManager().isModuleEnabled("ads-filter") || ipPattern == null) return false;
+        return filterAds(text, "*").wasFiltered;
     }
 
     private boolean shouldFilter(ContentType type, boolean signF, boolean bookF, boolean itemF) {

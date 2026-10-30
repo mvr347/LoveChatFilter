@@ -114,4 +114,12 @@ class ProfanityScannerTest {
         var scanner = scanner(List.of(), List.of());
         assertFalse(scanner.scan("что угодно", "#").filtered());
     }
+
+    @Test
+    void safeWordsMayContainDigits() {
+        var withSafe = scanner(List.of("дурак"), List.of("дурак123"));
+        assertFalse(withSafe.scan("дурак123", "#").filtered());
+        assertTrue(withSafe.scan("дурак", "#").filtered());
+        assertTrue(scanner(List.of("дурак"), List.of()).scan("дурак123", "#").filtered());
+    }
 }
