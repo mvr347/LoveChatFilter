@@ -18,13 +18,16 @@ commands:
     description: Включить/выключить авто-исправление грамматики
     aliases: [грамматика]
   lovechatfilteradmin:
-    description: Административные команды LoveChatFilter (reload и т.д.)
-    permission: lovechatfilter.reload
+    description: Административные команды LoveChatFilter (reload, слова из игры)
+    # Права проверяются в коде (reload и manage разные), без права команда молчит.
     permission-message: ""
 
 permissions:
   lovechatfilter.reload:
     description: Право на перезагрузку плагина
+    default: op
+  lovechatfilter.manage:
+    description: Право добавлять и убирать мат, безопасные слова и рекламу из игры, проверять текст
     default: op
   lovechatfilter.bypass.ads:
     description: Право на обход фильтра рекламы

@@ -107,11 +107,18 @@ final class AdvancedProfanityFilter {
         char[] chars = text.toCharArray();
         for (int i = 0; i < chars.length; i++) {
             char c = Character.toLowerCase(chars[i]);
+            // Zero-width characters are invisible to the reader but split a word for the regex;
+            // a space keeps the text char-for-char (offsets stay 1:1) and lets the gap rules join it.
+            if (isInvisible(c)) c = ' ';
             if (homoglyphs) c = mapHomoglyph(c);
             if (digits) c = mapDigit(c);
             chars[i] = c;
         }
         return new String(chars);
+    }
+
+    private static boolean isInvisible(char c) {
+        return c == '\u200B' || c == '\u200C' || c == '\u200D' || c == '\u2060' || c == '\uFEFF' || c == '\u00AD';
     }
 
     private static char mapHomoglyph(char c) {
@@ -129,6 +136,8 @@ final class AdvancedProfanityFilter {
             case 'h' -> 'н';
             case 'k' -> 'к';
             case 'l' -> 'л';
+            case '@' -> 'а';
+            case '$' -> 'с';
             default -> c;
         };
     }
@@ -179,7 +188,7 @@ final class AdvancedProfanityFilter {
         return new Result(sb.toString(), matched);
     }
 
-    private static int levenshtein(CharSequence a, CharSequence b) {
+    static int levenshtein(CharSequence a, CharSequence b) {
         int n = a.length(), m = b.length();
         int[] prev = new int[m + 1];
         int[] curr = new int[m + 1];

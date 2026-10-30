@@ -119,6 +119,13 @@ public class ChatListener implements Listener {
         }
     }
 
+    private boolean isOwnAdminCommand(String cmd) {
+        var own = acf.getCommand("lovechatfilteradmin");
+        if (own == null) return false;
+        String bare = cmd.startsWith(acf.getName().toLowerCase() + ":") ? cmd.substring(cmd.indexOf(':') + 1) : cmd;
+        return own.getName().equalsIgnoreCase(bare) || own.getAliases().stream().anyMatch(bare::equalsIgnoreCase);
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onCommand(PlayerCommandPreprocessEvent event) {
         if (!isAuthenticated(event.getPlayer())) return;
@@ -127,7 +134,15 @@ public class ChatListener implements Listener {
         if (message.length() < 2) return;
 
         String[] parts = message.split(" ", 2);
-        String cmd = parts[0].substring(1).toLowerCase();
+        // A real client always sends the leading "/", but some senders (tests, other plugins running a
+        // command line through the event) do not; cutting a letter off the name would let it slip past
+        // every command rule below.
+        String cmd = (parts[0].startsWith("/") ? parts[0].substring(1) : parts[0]).toLowerCase();
+
+        // 0. Собственная админ-команда плагина: в ней админ сам вводит слова (в том числе мат),
+        // и фильтр не должен закрашивать их до выполнения команды. Права на неё проверяет
+        // сама команда, поэтому обход фильтра обычному игроку это не даёт.
+        if (isOwnAdminCommand(cmd)) return;
 
         // 1. Полностью игнорируемые команды (для паролей и авторизации)
         List<String> ignored = acf.getConfigManager().getConfig().getStringList("ignore-commands");

@@ -5,6 +5,8 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import me.clip.placeholderapi.PlaceholderAPI;
 import me.lovelace.lovechatfilter.LoveChatFilter;
 import me.lovelace.lovechatfilter.managers.ConfigManager;
+import me.lovelace.lovechatfilter.managers.WordLists;
+import me.lovelace.lovechatfilter.managers.WordRules;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -24,25 +26,20 @@ public class FilterEngine {
     // Written by reloadCache() (main thread, via /lovechatfilteradmin reload) and read from
     // async chat-processing threads on every message — volatile so a reload becomes visible to
     // other threads immediately instead of racing on the Java Memory Model.
-    private volatile Pattern profanityPattern;
+    private volatile ProfanityScanner scanner = ProfanityScanner.create(
+            List.of(), List.of(), List.of(), new ProfanityScanner.Settings(false, false, false, false, false, false, 1, 4), w -> {});
     private volatile Pattern ipPattern;
     private volatile Pattern adsWhitelistPattern;
     private volatile Pattern goodwordsPattern;
     private volatile Pattern additionalPattern;
     private volatile Pattern politePhrasePattern;
-
-    private volatile boolean advancedEnabled;
-    private volatile boolean advancedHomoglyphs;
-    private volatile boolean advancedDigits;
-    private volatile boolean advancedFuzzy;
-    private volatile boolean advancedCompact;
-    private volatile int advancedMaxTypoDistance;
-    private volatile int advancedMinFuzzyLength;
-    private volatile List<String> plainBadwords = List.of();
+    private volatile boolean obfuscatedDots;
 
     private volatile int capsPercentThreshold;
     private volatile boolean bwSignFilter, bwBookFilter, bwItemFilter;
     private volatile boolean adsSignFilter, adsBookFilter, adsItemFilter;
+
+    private volatile int repeatCap = 5;
 
     private volatile boolean autoModEnabled;
     private volatile int severityProfanity, severitySpam, severityCaps, severityAds;
@@ -93,15 +90,23 @@ public class FilterEngine {
         reloadCache();
     }
 
+    /**
+     * Full reload from config.yml: also forgets cooldowns, as it always did. Words added from the
+     * game go through {@link #rebuildFilters()} instead so adding a word never resets anti-spam.
+     */
     public void reloadCache() {
-        FileConfiguration config = plugin.getConfigManager().getConfig();
-        contentCache.invalidateAll();
-
         lastMessageTime.invalidateAll();
         lastMessageText.invalidateAll();
         lastGoodwordTimeWithTarget.invalidateAll();
         lastGoodwordTimeNoTarget.invalidateAll();
         lastAdditionalTime.invalidateAll();
+        rebuildFilters();
+    }
+
+    /** Rebuilds every compiled filter (config + words added in game) and drops the content cache. */
+    public void rebuildFilters() {
+        FileConfiguration config = plugin.getConfigManager().getConfig();
+        contentCache.invalidateAll();
 
         bwSignFilter = config.getBoolean("badwords-filter.sign-filter", true);
         bwBookFilter = config.getBoolean("badwords-filter.book-filter", true);
@@ -113,52 +118,37 @@ public class FilterEngine {
 
         capsPercentThreshold = config.getInt("anti-caps.max-caps-percent", 70);
 
-        // --- БЕЗОПАСНАЯ КОМПИЛЯЦИЯ МАТОВ ---
-        List<String> badwords = config.getStringList("badwords-filter.list");
-        if (!badwords.isEmpty()) {
-            List<String> smartRegexList = new ArrayList<>();
-            for (String word : badwords) {
-                if (word.startsWith("(?i)")) {
-                    smartRegexList.add(word.substring(4)); // Отрезаем (?i), чтобы не сломать общий паттерн
-                } else {
-                    StringBuilder sb = new StringBuilder();
-                    char[] chars = word.toLowerCase().toCharArray();
-                    for (int i = 0; i < chars.length; i++) {
-                        sb.append(Pattern.quote(String.valueOf(chars[i]))).append("+");
-                        if (i < chars.length - 1) sb.append("[\\W_]*");
-                    }
-                    smartRegexList.add(sb.toString());
-                }
-            }
-            try {
-                profanityPattern = Pattern.compile("(?uiU)(" + String.join("|", smartRegexList) + ")");
-            } catch (Exception e) {
-                profanityPattern = null;
-            }
+        WordLists words = plugin.getWordLists();
+        List<String> customBad = new ArrayList<>(words.words(WordRules.Kind.BAD));
+        List<String> safe = new ArrayList<>(configSafeWords(config));
+        safe.addAll(words.words(WordRules.Kind.SAFE));
 
-            List<String> plain = new ArrayList<>();
-            for (String word : badwords) {
-                if (!word.startsWith("(?i)")) plain.add(word.toLowerCase());
-            }
-            plainBadwords = plain;
-        } else {
-            profanityPattern = null;
-            plainBadwords = List.of();
-        }
-
-        advancedEnabled = config.getBoolean("badwords-filter.advanced.enabled", false);
-        advancedHomoglyphs = config.getBoolean("badwords-filter.advanced.homoglyph-detection", true);
-        advancedDigits = config.getBoolean("badwords-filter.advanced.digit-substitution-detection", true);
-        advancedFuzzy = config.getBoolean("badwords-filter.advanced.fuzzy-matching", true);
-        advancedCompact = config.getBoolean("badwords-filter.advanced.compact-detection", true);
-        advancedMaxTypoDistance = config.getInt("badwords-filter.advanced.max-typo-distance", 1);
-        advancedMinFuzzyLength = config.getInt("badwords-filter.advanced.min-fuzzy-word-length", 4);
+        boolean advanced = config.getBoolean("badwords-filter.advanced.enabled", false);
+        scanner = ProfanityScanner.create(
+                config.getStringList("badwords-filter.list"),
+                customBad,
+                safe,
+                new ProfanityScanner.Settings(
+                        advanced,
+                        config.getBoolean("badwords-filter.advanced.homoglyph-detection", true),
+                        config.getBoolean("badwords-filter.advanced.digit-substitution-detection", true),
+                        config.getBoolean("badwords-filter.advanced.fuzzy-matching", true),
+                        config.getBoolean("badwords-filter.advanced.compact-detection", true),
+                        config.getBoolean("badwords-filter.advanced.transliteration-detection", true),
+                        config.getInt("badwords-filter.advanced.max-typo-distance", 1),
+                        config.getInt("badwords-filter.advanced.min-fuzzy-word-length", 4)),
+                plugin.getLogger()::warning);
 
         List<String> adPatterns = new ArrayList<>(config.getStringList("ads-filter.patterns"));
         adPatterns.addAll(config.getStringList("ads-filter.extra-link-patterns"));
+        for (String custom : words.words(WordRules.Kind.AD)) adPatterns.add(Pattern.quote(custom));
         if (!adPatterns.isEmpty()) {
             ipPattern = Pattern.compile("(?ui)\\S*(?:" + String.join("|", adPatterns) + "|(?:\\d{1,3}[ .,]{1,3}){3}\\d{1,3})\\S*");
         } else ipPattern = null;
+
+        obfuscatedDots = config.getBoolean("ads-filter.detect-obfuscated", true);
+        int maxRepeat = config.getInt("anti-spam.max-repeated-chars", 5);
+        repeatCap = maxRepeat >= 2 ? maxRepeat : 0;
 
         List<String> whitelist = config.getStringList("ads-filter.whitelist");
         if (!whitelist.isEmpty()) {
@@ -197,8 +187,6 @@ public class FilterEngine {
             }
         }
 
-        scanPolitePhrase(player, originalMessage);
-
         boolean bypassCaps = player.hasPermission("lovechatfilter.bypass.caps");
         boolean bypassBadwords = player.hasPermission("lovechatfilter.bypass.badwords");
         boolean bypassAds = player.hasPermission("lovechatfilter.bypass.ads");
@@ -206,6 +194,9 @@ public class FilterEngine {
 
         CacheKey key = new CacheKey(originalMessage, bypassCaps, bypassBadwords, bypassAds, grammarEnabled, ContentType.CHAT);
         CacheValue result = contentCache.get(key, this::evaluateContent);
+
+        // A courteous word inside a message that was just censored for swearing earns nothing.
+        if (!result.triggeredSwear) scanPolitePhrase(player, originalMessage);
 
         if (result.triggeredSwear && cm.getConfig().getBoolean("badwords-filter.full-delete-message", false)) {
             triggerCommands("badwords-filter.commands-on-detect", player, result.processedText, originalMessage, "");
@@ -310,27 +301,57 @@ public class FilterEngine {
     public boolean isProfane(String text) {
         if (text == null || text.isEmpty()) return false;
         if (!plugin.getConfigManager().isModuleEnabled("badwords-filter")) return false;
-        if (profanityPattern == null) return false;
+        return scanner.scan(text, " ").filtered();
+    }
 
-        if (applyRegexFilter(text, profanityPattern, null, " ").wasFiltered()) {
-            return true;
-        }
-        if (!advancedEnabled) return false;
+    /**
+     * An existing server keeps the config.yml it was created with, which has no safe-words key; the
+     * built-in defaults then apply, so the fix works without anyone editing the file by hand.
+     */
+    private static List<String> configSafeWords(FileConfiguration config) {
+        return config.isList("badwords-filter.safe-words")
+                ? config.getStringList("badwords-filter.safe-words")
+                : List.of("скрафт*", "крафт*", "сукно*");
+    }
 
-        String canonical = AdvancedProfanityFilter.canonicalize(text, advancedHomoglyphs, advancedDigits);
-        if (!canonical.equals(text) && applyCanonicalRegexFilter(text, canonical, profanityPattern, " ").wasFiltered()) {
-            return true;
+    /** Words already present in config.yml for this kind, so an admin is not allowed to double them. */
+    public java.util.Set<String> configWords(WordRules.Kind kind) {
+        FileConfiguration config = plugin.getConfigManager().getConfig();
+        java.util.Set<String> out = new java.util.HashSet<>();
+        switch (kind) {
+            case BAD -> config.getStringList("badwords-filter.list").forEach(w -> out.add(w.toLowerCase()));
+            case SAFE -> configSafeWords(config).forEach(w -> out.add(ProfanityScanner.normalize(w)));
+            case AD -> { }
         }
-        if (advancedFuzzy && !plainBadwords.isEmpty()) {
-            AdvancedProfanityFilter.Result fr = AdvancedProfanityFilter.applyFuzzyFilter(
-                    text, canonical, plainBadwords, advancedMaxTypoDistance, advancedMinFuzzyLength, " ");
-            if (fr.wasFiltered()) return true;
+        return out;
+    }
+
+    /** What the filters would do to this text, for the admin preview; nothing is sent or recorded. */
+    public record Preview(String text, boolean profane, java.util.Set<String> layers, boolean ads, boolean caps) {}
+
+    public Preview preview(String text) {
+        ConfigManager cm = plugin.getConfigManager();
+        String repl = cm.getConfig().getString("badwords-filter.replacement-char", "👑");
+        String message = text;
+        boolean caps = false, profane = false, ads = false;
+        java.util.Set<String> layers = new java.util.LinkedHashSet<>();
+        if (cm.isModuleEnabled("anti-caps") && hasLetters(message) && checkCaps(message, capsPercentThreshold)) {
+            caps = true;
+            message = message.toLowerCase();
         }
-        if (advancedCompact && !plainBadwords.isEmpty()) {
-            var compactChains = AdvancedProfanityFilter.compactChains(canonical);
-            if (AdvancedProfanityFilter.containsCompactMatch(compactChains, plainBadwords, advancedMinFuzzyLength)) return true;
+        if (cm.isModuleEnabled("badwords-filter")) {
+            var r = scanner.scan(message, repl);
+            profane = r.filtered();
+            layers = r.layers();
+            message = r.text();
         }
-        return false;
+        if (cm.isModuleEnabled("ads-filter") && ipPattern != null) {
+            String adRepl = cm.getConfig().getString("ads-filter.replacement-char", "*");
+            FilterResult ar = filterAds(message, adRepl);
+            ads = ar.wasFiltered;
+            message = ar.text;
+        }
+        return new Preview(message, profane, layers, ads, caps);
     }
 
     public String processContent(Player player, String text, ContentType type) {
@@ -349,6 +370,10 @@ public class FilterEngine {
         String foundTarget = "", additionalTarget = "";
         ConfigManager cm = plugin.getConfigManager();
 
+        if (key.type == ContentType.CHAT && repeatCap >= 2 && cm.isModuleEnabled("anti-spam")) {
+            message = TextRules.collapseRepeats(message, repeatCap);
+        }
+
         if (key.type == ContentType.CHAT && cm.isModuleEnabled("anti-caps") && !key.bypassCaps && hasLetters(message)) {
             if (checkCaps(message, capsPercentThreshold)) { triggeredCaps = true; message = message.toLowerCase(); }
         }
@@ -356,53 +381,15 @@ public class FilterEngine {
         if (cm.isModuleEnabled("badwords-filter") && !key.bypassBadwords) {
             if (shouldFilter(key.type, bwSignFilter, bwBookFilter, bwItemFilter)) {
                 String repl = cm.getConfig().getString("badwords-filter.replacement-char", "👑");
-                boolean filtered = false;
-
-                if (profanityPattern != null) {
-                    FilterResult sr = applyRegexFilter(message, profanityPattern, null, repl);
-                    if (sr.wasFiltered) { triggeredSwear = true; message = sr.text; filtered = true; }
-                }
-
-                if (!filtered && profanityPattern != null && advancedEnabled) {
-                    String canonical = AdvancedProfanityFilter.canonicalize(message, advancedHomoglyphs, advancedDigits);
-                    if (!canonical.equals(message)) {
-                        FilterResult cr = applyCanonicalRegexFilter(message, canonical, profanityPattern, repl);
-                        if (cr.wasFiltered) { triggeredSwear = true; message = cr.text; filtered = true; }
-                    }
-                }
-
-                if (!filtered && advancedEnabled && advancedFuzzy && !plainBadwords.isEmpty()) {
-                    String canonical = AdvancedProfanityFilter.canonicalize(message, advancedHomoglyphs, advancedDigits);
-                    AdvancedProfanityFilter.Result fr = AdvancedProfanityFilter.applyFuzzyFilter(
-                            message, canonical, plainBadwords, advancedMaxTypoDistance, advancedMinFuzzyLength, repl);
-                    if (fr.wasFiltered()) { triggeredSwear = true; message = fr.text(); filtered = true; }
-                }
-
-                // Компактное сравнение (пробелы/пунктуация вырезаны внутри коротких фрагментов,
-                // растянутые буквы схлопнуты) не даёт смещений для точечной замены — при
-                // срабатывании только этого слоя цензурим сообщение целиком, а не отдельное
-                // слово. 2026-09-26: раньше compact() склеивал ВСЁ сообщение в одну строку, из-за
-                // чего соседние настоящие слова могли случайно сложиться в бранное слово на
-                // стыке (например "с указкой" → "суказкой" содержит "сука") и цензурили всё
-                // сообщение целиком, включая ни в чём не повинные слова вроде "скрафить" рядом.
-                // Теперь compactChains() сливает только короткие фрагменты (см.
-                // COMPACT_MERGE_MAX_TOKEN_LENGTH) — настоящее слово длиннее порога никогда не
-                // склеивается с соседями.
-                if (!filtered && advancedEnabled && advancedCompact && !plainBadwords.isEmpty()) {
-                    String canonical = AdvancedProfanityFilter.canonicalize(message, advancedHomoglyphs, advancedDigits);
-                    var compactChains = AdvancedProfanityFilter.compactChains(canonical);
-                    if (AdvancedProfanityFilter.containsCompactMatch(compactChains, plainBadwords, advancedMinFuzzyLength)) {
-                        triggeredSwear = true;
-                        message = repl.equalsIgnoreCase("NONE") ? "" : repl.repeat(message.length());
-                    }
-                }
+                var scan = scanner.scan(message, repl);
+                if (scan.filtered()) { triggeredSwear = true; message = scan.text(); }
             }
         }
 
         if (cm.isModuleEnabled("ads-filter") && !key.bypassAds && ipPattern != null) {
             if (shouldFilter(key.type, adsSignFilter, adsBookFilter, adsItemFilter)) {
                 String repl = cm.getConfig().getString("ads-filter.replacement-char", "*");
-                FilterResult ar = applyRegexFilter(message, ipPattern, adsWhitelistPattern, repl);
+                FilterResult ar = filterAds(message, repl);
                 if (ar.wasFiltered) { triggeredAds = true; message = ar.text; }
             }
         }
@@ -455,6 +442,20 @@ public class FilterEngine {
         return new CacheValue(message, triggeredCaps, triggeredSwear, triggeredAds, triggeredGoodwords, foundTarget, triggeredAdditional, additionalTarget);
     }
 
+    /**
+     * Link filter plus the "dot written another way" case ("mysrv (точка) net"): the normalised
+     * text is matched, and since that text has no 1:1 offsets the whole message is censored.
+     */
+    private FilterResult filterAds(String message, String repl) {
+        FilterResult direct = applyRegexFilter(message, ipPattern, adsWhitelistPattern, repl);
+        if (direct.wasFiltered || !obfuscatedDots) return direct;
+        String normalised = TextRules.normalizeObfuscatedDots(message);
+        if (normalised.equals(message)) return direct;
+        FilterResult hidden = applyRegexFilter(normalised, ipPattern, adsWhitelistPattern, repl);
+        if (!hidden.wasFiltered) return direct;
+        return new FilterResult(repl.equalsIgnoreCase("NONE") ? "" : repl.repeat(message.length()), true);
+    }
+
     private boolean shouldFilter(ContentType type, boolean signF, boolean bookF, boolean itemF) {
         if (type == ContentType.CHAT) return true;
         if (type == ContentType.SIGN) return signF;
@@ -479,23 +480,6 @@ public class FilterEngine {
             }
         }
         m.appendTail(sb);
-        return new FilterResult(sb.toString(), matched);
-    }
-
-    private FilterResult applyCanonicalRegexFilter(String original, String canonical, Pattern pattern, String repl) {
-        boolean useNone = repl.equalsIgnoreCase("NONE");
-        Matcher m = pattern.matcher(canonical);
-        StringBuilder sb = new StringBuilder();
-        int last = 0;
-        boolean matched = false;
-
-        while (m.find()) {
-            matched = true;
-            sb.append(original, last, m.start());
-            sb.append(useNone ? "" : repl.repeat(m.end() - m.start()));
-            last = m.end();
-        }
-        sb.append(original, last, original.length());
         return new FilterResult(sb.toString(), matched);
     }
 

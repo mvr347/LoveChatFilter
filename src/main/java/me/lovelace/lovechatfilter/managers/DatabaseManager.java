@@ -7,11 +7,12 @@ import org.bukkit.Bukkit;
 
 import java.io.File;
 import java.sql.*;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 @SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve"})
-public class DatabaseManager {
+public class DatabaseManager implements WordLists.WordStore {
     private final LoveChatFilter plugin;
     private Connection connection;
     private volatile boolean isShuttingDown = false;
@@ -37,6 +38,7 @@ public class DatabaseManager {
 
             try (Statement stmt = connection.createStatement()) {
                 stmt.execute("CREATE TABLE IF NOT EXISTS grammar_users (uuid VARCHAR(36) PRIMARY KEY, enabled BOOLEAN)");
+                stmt.execute("CREATE TABLE IF NOT EXISTS custom_words (kind TEXT NOT NULL, word TEXT NOT NULL, added_by TEXT NOT NULL, added_at INTEGER NOT NULL, PRIMARY KEY (kind, word))");
             }
         } catch (SQLException e) {
             plugin.getLogger().severe("Failed to connect to database or create table: " + e.getMessage());
@@ -122,5 +124,50 @@ public class DatabaseManager {
                 plugin.getLogger().warning("Failed to save grammar state for " + uuid + ": " + e.getMessage());
             }
         });
+    }
+
+    // ---- words added from the game (WordLists) ----
+    // The connection is shared by async tasks, so every access here is serialised.
+
+    @Override
+    public synchronized List<WordLists.Entry> loadWords() {
+        List<WordLists.Entry> result = new java.util.ArrayList<>();
+        if (connection == null) return result;
+        try (PreparedStatement ps = connection.prepareStatement("SELECT kind, word, added_by, added_at FROM custom_words");
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                WordRules.Kind kind = WordRules.Kind.valueOf(rs.getString("kind"));
+                result.add(new WordLists.Entry(kind, rs.getString("word"), rs.getString("added_by"), rs.getLong("added_at")));
+            }
+        } catch (SQLException | IllegalArgumentException e) {
+            plugin.getLogger().warning("Не удалось прочитать добавленные слова: " + e.getMessage());
+        }
+        return result;
+    }
+
+    @Override
+    public synchronized void saveWord(WordLists.Entry entry) {
+        if (isShuttingDown || connection == null) return;
+        try (PreparedStatement ps = connection.prepareStatement("INSERT OR REPLACE INTO custom_words (kind, word, added_by, added_at) VALUES (?, ?, ?, ?)")) {
+            ps.setString(1, entry.kind().name());
+            ps.setString(2, entry.word());
+            ps.setString(3, entry.addedBy());
+            ps.setLong(4, entry.addedAt());
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException(e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public synchronized void deleteWord(WordRules.Kind kind, String word) {
+        if (isShuttingDown || connection == null) return;
+        try (PreparedStatement ps = connection.prepareStatement("DELETE FROM custom_words WHERE kind = ? AND word = ?")) {
+            ps.setString(1, kind.name());
+            ps.setString(2, word);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException(e.getMessage(), e);
+        }
     }
 }

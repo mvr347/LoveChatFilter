@@ -33,4 +33,29 @@ reload-moved: "<yellow>Эта команда переехала: использ�
 
 admin-help-header: "<dark_gray>========== <aqua>LoveChatFilter Admin</aqua> ==========</dark_gray>"
 admin-help-reload: "<aqua>/lovechatfilteradmin reload</aqua> <gray>- Перезагрузить конфигурацию и кэш фильтров</gray>"
+admin-help-add: "<aqua>/lovechatfilteradmin add <мат|безопасное|реклама> <слово></aqua> <gray>- Добавить слово из игры</gray>"
+admin-help-remove: "<aqua>/lovechatfilteradmin remove <вид> <слово></aqua> <gray>- Убрать добавленное слово</gray>"
+admin-help-list: "<aqua>/lovechatfilteradmin list <вид> [страница]</aqua> <gray>- Показать добавленные слова</gray>"
+admin-help-check: "<aqua>/lovechatfilteradmin check <текст></aqua> <gray>- Показать, что фильтр сделает с текстом (в чат ничего не уходит)</gray>"
 admin-help-footer: "<dark_gray>=====================================</dark_gray>"
+
+# ==========================================
+# Слова, добавляемые из игры (/lovechatfilteradmin add|remove|list|check)
+# ==========================================
+kind-bad: "мат"
+kind-safe: "безопасное слово"
+kind-ad: "реклама"
+
+words-usage-add: "<red>Использование: /lovechatfilteradmin add <мат|безопасное|реклама> <слово></red>"
+words-usage-remove: "<red>Использование: /lovechatfilteradmin remove <мат|безопасное|реклама> <слово></red>"
+words-usage-list: "<red>Использование: /lovechatfilteradmin list <мат|безопасное|реклама> [страница]</red>"
+words-usage-check: "<red>Использование: /lovechatfilteradmin check <текст></red>"
+words-added: "<green>Добавлено ({kind}): <white>{word}</white>. Работает сразу.</green>"
+words-refused: "<red>{reason}</red>"
+words-removed: "<green>Убрано ({kind}): <white>{word}</white></green>"
+words-not-found: "<red>Слова <white>{word}</white> нет в добавленных из игры. Слова из config.yml правятся только в нём.</red>"
+words-list-empty: "<gray>Из игры ничего не добавлено ({kind}).</gray>"
+words-list-header: "<gold>{kind}: {count} шт., страница {page}/{pages}</gold>"
+words-list-line: "<gray>- <white>{word}</white> <dark_gray>({by}, {date})</dark_gray></gray>"
+check-clean: "<green>Фильтр ничего не меняет:</green> <white>{text}</white>"
+check-found: "<yellow>Найдено: {found}.</yellow> <gray>Итог:</gray> <white>{text}</white>"
