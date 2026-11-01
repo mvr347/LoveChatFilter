@@ -1,0 +1,7 @@
+# Однократное обновление оформления; исходные файлы сохраняются рядом как .pre-style-20261101.bak.
+version: 20261101
+updates:
+- file: messages.yml
+  path: prefix
+  before: "<gray>[<gold>LCF</gold>]</gray> "
+  value: '<gradient:#FFCC55:#FFAA00>Чат</gradient> <white>»</white> '
