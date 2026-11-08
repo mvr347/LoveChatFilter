@@ -8,7 +8,8 @@ import java.util.Set;
  * <ul>
  *   <li>a plugin-namespaced label ({@code plugin:command}) is hidden unless allow-listed (otherwise typing the
  *       prefix would let a player browse every command);</li>
- *   <li>blocked and service/admin labels are hidden always, in any language;</li>
+ *   <li>blocked labels are hidden always; an allow-listed label is shown unless blocked;</li>
+ *   <li>service/admin labels are hidden in any language;</li>
  *   <li>labels that start with {@code love} (loveauth, loveclans, lovechatfilteradmin...) are the plugins' own
  *       long names: hidden unless allow-listed, while their short aliases (auth, clan) stay visible;</li>
  *   <li>everything else, English or Russian, is shown.</li>
@@ -34,7 +35,7 @@ public final class CommandVisibility {
             // admin commands of the other plugins (short aliases; the love* names are hidden by prefix)
             "ladmin", "ладмин", "lactadmin", "laadmin", "лаадмин", "brewadmin", "ba", "ca", "clansadmin", "lca",
             "lcadmin", "lda", "dueladmin", "дуэльадмин", "lba", "lbadmin", "leaderboardadmin", "lsa", "lspa", "lssa",
-            "lwa", "lcf", "vs", "veso", "contracts", "contract", "контракты", "pcontract", "pcontracts",
+            "lwa", "vs", "veso", "contracts", "contract", "контракты", "pcontract", "pcontracts",
             "playercontract", "контракт", "tpadmin", "tpa",
             // chat staff tools and the internal command behind chat buttons
             "chatclear", "cc", "spy", "scrollcancel");
@@ -45,9 +46,12 @@ public final class CommandVisibility {
         boolean namespaced = full.contains(":");
         String bare = namespaced ? full.substring(full.indexOf(':') + 1) : full;
         if (blocked.contains(full) || blocked.contains(bare)) return false;
-        if (namespaced) return allowed.contains(bare) || allowed.contains(full);
+        // An explicit allow-list entry wins over the service/love/namespace rules (the owner decided), for the bare
+        // and the namespaced label alike, so equivalent labels never disagree.
+        if (allowed.contains(full) || allowed.contains(bare)) return true;
+        if (namespaced) return false;
         if (service.contains(bare)) return false;
-        if (bare.startsWith("love") && !allowed.contains(bare)) return false;
+        if (bare.startsWith("love")) return false;
         return true;
     }
 }

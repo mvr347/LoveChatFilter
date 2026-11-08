@@ -38,6 +38,14 @@ class CommandVisibilityTest {
     }
 
     @Test
+    void allowListWinsOverServiceAndNamespaceRulesForEquivalentLabels() {
+        var allowed = Set.of("heal", "lcf");
+        assertTrue(CommandVisibility.isVisible("heal", allowed, Set.of(), SERVICE));
+        assertTrue(CommandVisibility.isVisible("loveessential:heal", allowed, Set.of(), SERVICE));
+        assertTrue(visible("lcf"), "the player-facing command is not a service command");
+    }
+
+    @Test
     void blockedWinsOverEverything() {
         assertFalse(CommandVisibility.isVisible("меню", Set.of("меню"), Set.of("меню"), SERVICE));
     }
