@@ -77,6 +77,27 @@ class ViolationStatsTest {
     }
 
     @Test
+    void overlappingFlushesNeverLeaveAnOlderValueBehind() throws Exception {
+        var store = new MemoryStore();
+        var stats = new ViolationStats(store);
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(4);
+        try {
+            for (int round = 0; round < 200; round++) {
+                stats.record("SPAM", TODAY);
+                var a = pool.submit(stats::flush);
+                stats.record("SPAM", TODAY);
+                var b = pool.submit(stats::flush);
+                a.get();
+                b.get();
+            }
+            stats.flush();
+        } finally {
+            pool.shutdownNow();
+        }
+        assertEquals(400L, store.saved.get("2026-11-09|SPAM"));
+    }
+
+    @Test
     void theSpanIsClamped() {
         var stats = new ViolationStats(new MemoryStore());
         assertEquals(1, stats.summary(0, TODAY).get("days"));

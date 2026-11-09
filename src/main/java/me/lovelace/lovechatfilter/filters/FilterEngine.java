@@ -213,7 +213,13 @@ public class FilterEngine {
 
         if (cm.isModuleEnabled("emptymessages-clear")) {
             String clean = result.processedText.replaceAll("(?i)[&§][0-9a-fk-orx]", "").strip();
-            if (clean.isEmpty()) return new ProcessResult("", true);
+            if (clean.isEmpty()) {
+                // The message is dropped before the violation signals below: the panel statistics still count what was caught.
+                if (result.triggeredCaps) recordViolation(me.lovelace.lovechatfilter.api.events.ChatViolationEvent.ViolationType.CAPS);
+                if (result.triggeredSwear) recordViolation(me.lovelace.lovechatfilter.api.events.ChatViolationEvent.ViolationType.PROFANITY);
+                if (result.triggeredAds) recordViolation(me.lovelace.lovechatfilter.api.events.ChatViolationEvent.ViolationType.ADS);
+                return new ProcessResult("", true);
+            }
         }
 
         if (result.triggeredCaps) {
@@ -569,6 +575,10 @@ public class FilterEngine {
         return text == null ? "" : text.replace("%", "");
     }
 
+    private void recordViolation(me.lovelace.lovechatfilter.api.events.ChatViolationEvent.ViolationType type) {
+        if (plugin.getViolationStats() != null) plugin.getViolationStats().record(type.name(), java.time.LocalDate.now());
+    }
+
     /**
      * Fires the informational ChatViolationEvent and forwards the signal to LoveBehavior (if
      * present) via reflection. Both are best-effort — a listener throwing, or LoveBehavior being
@@ -576,7 +586,7 @@ public class FilterEngine {
      */
     private void fireViolation(Player player, me.lovelace.lovechatfilter.api.events.ChatViolationEvent.ViolationType type, int severity) {
         // The panel statistics count every caught violation, whether or not the reputation signals are switched on.
-        if (plugin.getViolationStats() != null) plugin.getViolationStats().record(type.name(), java.time.LocalDate.now());
+        recordViolation(type);
         if (!autoModEnabled) return;
         try {
             Bukkit.getPluginManager().callEvent(new me.lovelace.lovechatfilter.api.events.ChatViolationEvent(player, type, severity));

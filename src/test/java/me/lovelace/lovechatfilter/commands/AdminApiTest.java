@@ -70,6 +70,19 @@ class AdminApiTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void aMessageCensoredToNothingIsStillCountedInTheStatistics() {
+        var player = server.addPlayer("Rude");
+        plugin.getConfig().set("badwords-filter.replacement-char", "NONE");
+        plugin.getConfig().set("badwords-filter.full-delete-message", false);
+        plugin.getFilterEngine().rebuildFilters();
+        var result = plugin.getFilterEngine().processChat(player, "сука");
+        assertTrue(result.cancelled, "nothing is left to send");
+        var totals = (Map<String, Long>) plugin.statistics(1).get("totals");
+        assertEquals(1L, totals.get("profanity"));
+    }
+
+    @Test
     void statisticsHaveEveryTypeEvenWithoutViolations() {
         var stats = plugin.statistics(7);
         assertEquals(7, stats.get("days"));

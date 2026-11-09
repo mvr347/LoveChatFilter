@@ -48,8 +48,11 @@ public final class ViolationStats {
         dirty.add(key);
     }
 
-    /** Writes every changed counter; safe to call from any thread. */
-    public void flush() {
+    /**
+     * Writes every changed counter; safe to call from any thread. The whole pass is serialised: a periodic flush and the
+     * shutdown flush could otherwise save the same counter out of order and leave the older, smaller value in the database.
+     */
+    public synchronized void flush() {
         for (String key : List.copyOf(dirty)) {
             dirty.remove(key);
             AtomicLong value = counters.get(key);
