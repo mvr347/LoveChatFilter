@@ -575,6 +575,8 @@ public class FilterEngine {
      * absent, must never affect the filtering decision that already happened in processChat.
      */
     private void fireViolation(Player player, me.lovelace.lovechatfilter.api.events.ChatViolationEvent.ViolationType type, int severity) {
+        // The panel statistics count every caught violation, whether or not the reputation signals are switched on.
+        if (plugin.getViolationStats() != null) plugin.getViolationStats().record(type.name(), java.time.LocalDate.now());
         if (!autoModEnabled) return;
         try {
             Bukkit.getPluginManager().callEvent(new me.lovelace.lovechatfilter.api.events.ChatViolationEvent(player, type, severity));
