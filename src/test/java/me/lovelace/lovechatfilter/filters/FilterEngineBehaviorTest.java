@@ -133,4 +133,16 @@ class FilterEngineBehaviorTest {
         assertTrue(engine.configWords(me.lovelace.lovechatfilter.managers.WordRules.Kind.SAFE).contains("сказать"));
         assertFalse(engine.listedConfigWords(me.lovelace.lovechatfilter.managers.WordRules.Kind.SAFE).contains("сказать"));
     }
+
+    @Test
+    void shippedWordsComeFromTheirOwnDatabaseAndCanBeSwitchedOffThere() {
+        plugin.getConfig().set("badwords-filter.list", java.util.List.of("(?i)[с$][уу]*[ч]*[к][а@4иу]*"));
+        engine.reloadCache();
+        assertNotNull(plugin.getSafeWordStore(), "safe-words.db is opened on enable");
+        assertTrue(plugin.getSafeWordStore().bundledCount() > 10000);
+        assertFalse(engine.isProfane("сказал"), "a shipped form");
+        plugin.getSafeWordStore().setBundledDisabled("сказал", true);
+        engine.reloadCache();
+        assertTrue(engine.isProfane("сказал"));
+    }
 }

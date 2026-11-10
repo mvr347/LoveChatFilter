@@ -6,6 +6,7 @@ import me.clip.placeholderapi.PlaceholderAPI;
 import me.lovelace.lovechatfilter.LoveChatFilter;
 import me.lovelace.lovechatfilter.managers.ConfigManager;
 import me.lovelace.lovechatfilter.managers.WordLists;
+import me.lovelace.lovechatfilter.managers.SafeWordStore;
 import me.lovelace.lovechatfilter.managers.WordRules;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
@@ -100,6 +101,7 @@ public class FilterEngine {
         lastGoodwordTimeWithTarget.invalidateAll();
         lastGoodwordTimeNoTarget.invalidateAll();
         lastAdditionalTime.invalidateAll();
+        bundledFromStore = null; // re-read the shipped words (a /lcf reload may follow a change in safe-words.db)
         rebuildFilters();
     }
 
@@ -321,16 +323,15 @@ public class FilterEngine {
                 : List.of("скрафт*", "крафт*", "сукно*");
     }
 
-    private static volatile List<String> bundledSafe;
+    private static volatile List<String> bundledResource;
+    private volatile List<String> bundledFromStore;
 
     /**
-     * Safe words shipped inside the plugin ({@code safe-words.txt}: one word per line, "#" starts a comment). They live in the jar and
-     * not in config.yml or the database on purpose: an existing server keeps the config.yml it was created with, so new defaults would
-     * never reach it, and nothing here is ever written over an admin's own edits. {@code badwords-filter.safe-words-disabled} drops
-     * single words from this list.
+     * The safe words shipped in the jar ({@code safe-words.txt}: one word per line, "#" starts a comment). At startup they are copied
+     * into the plugin's own {@code safe-words.db} ({@link SafeWordStore}); this reads the file itself, for that copy and for tests.
      */
-    static List<String> bundledSafeWords() {
-        List<String> cached = bundledSafe;
+    public static List<String> bundledResourceWords() {
+        List<String> cached = bundledResource;
         if (cached != null) return cached;
         List<String> words = new ArrayList<>();
         try (var in = FilterEngine.class.getResourceAsStream("/safe-words.txt")) {
@@ -343,18 +344,31 @@ public class FilterEngine {
         } catch (java.io.IOException unreadable) {
             // no bundled list: the config and database words still apply
         }
-        bundledSafe = List.copyOf(words);
-        return bundledSafe;
+        bundledResource = List.copyOf(words);
+        return bundledResource;
     }
 
-    private static List<String> bundledSafeWords(FileConfiguration config) {
+    /** Shipped words that are switched on: from {@code safe-words.db}, or from the jar when the database is unavailable. */
+    private List<String> shippedWords() {
+        SafeWordStore store = plugin.getSafeWordStore();
+        if (store == null) return bundledResourceWords();
+        List<String> cached = bundledFromStore;
+        if (cached == null) {
+            cached = List.copyOf(store.activeBundled());
+            bundledFromStore = cached;
+        }
+        return cached;
+    }
+
+    private List<String> bundledSafeWords(FileConfiguration config) {
         java.util.Set<String> disabled = new java.util.HashSet<>();
         for (String word : config.getStringList("badwords-filter.safe-words-disabled")) {
             disabled.add(ProfanityScanner.normalize(word));
         }
-        if (disabled.isEmpty()) return bundledSafeWords();
+        List<String> shipped = shippedWords();
+        if (disabled.isEmpty()) return shipped;
         List<String> kept = new ArrayList<>();
-        for (String word : bundledSafeWords()) {
+        for (String word : shipped) {
             if (!disabled.contains(ProfanityScanner.normalize(word))) kept.add(word);
         }
         return kept;

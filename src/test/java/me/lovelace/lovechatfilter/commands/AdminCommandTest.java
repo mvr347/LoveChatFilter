@@ -109,7 +109,14 @@ class AdminCommandTest {
             var saved = reopened.loadWords();
             assertTrue(saved.stream().anyMatch(e -> e.kind() == me.lovelace.lovechatfilter.managers.WordRules.Kind.BAD
                     && e.word().equals("дурак") && e.addedBy().equals("Admin")), saved.toString());
-            assertTrue(saved.stream().anyMatch(e -> e.word().equals("мандарин*")), saved.toString());
+            assertFalse(saved.stream().anyMatch(e -> e.word().equals("мандарин*")),
+                    "safe words live in their own database now: " + saved);
+            try (var safe = me.lovelace.lovechatfilter.managers.SafeWordStore.open(
+                    new java.io.File(plugin.getDataFolder(), "safe-words.db"))) {
+                assertTrue(safe.loadGameWords().stream().anyMatch(e -> e.word().equals("мандарин*") && e.addedBy().equals("Admin")));
+            } catch (java.sql.SQLException e) {
+                fail(e);
+            }
         } finally {
             reopened.close();
         }

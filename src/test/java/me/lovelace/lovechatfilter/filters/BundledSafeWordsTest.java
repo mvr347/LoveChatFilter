@@ -35,7 +35,7 @@ class BundledSafeWordsTest {
     }
 
     private static List<String> shipped() {
-        List<String> words = FilterEngine.bundledSafeWords();
+        List<String> words = FilterEngine.bundledResourceWords();
         assertFalse(words.isEmpty(), "safe-words.txt is missing from the jar");
         return words;
     }
