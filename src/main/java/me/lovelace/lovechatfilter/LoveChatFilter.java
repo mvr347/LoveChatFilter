@@ -167,7 +167,7 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
             row.put("addedAt", entry.addedAt());
             rows.add(row);
         }
-        for (String word : new java.util.TreeSet<>(filterEngine.configWords(parsed))) {
+        for (String word : new java.util.TreeSet<>(filterEngine.listedConfigWords(parsed))) {
             java.util.Map<String, Object> row = new java.util.LinkedHashMap<>();
             row.put("word", word);
             row.put("source", "config");

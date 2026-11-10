@@ -143,6 +143,20 @@ final class ProfanityScanner {
         return false;
     }
 
+    /**
+     * How many leading characters of a token are vouched for: the whole token for an exact safe word, only the prefix for a
+     * "prefix*" entry, 0 when nothing vouches for it.
+     */
+    int safeLength(String token) {
+        String normalized = normalize(token);
+        if (safeExact.contains(normalized)) return token.length();
+        int best = 0;
+        for (String prefix : safePrefixes) {
+            if (normalized.startsWith(prefix)) best = Math.max(best, prefix.length());
+        }
+        return Math.min(best, token.length());
+    }
+
     boolean isEmpty() {
         return profanity == null && plainBadwords.isEmpty();
     }
@@ -156,11 +170,19 @@ final class ProfanityScanner {
         Matcher words = SAFE_TOKEN.matcher(text);
         int segmentStart = 0;
         while (words.find()) {
-            if (!isSafe(words.group())) continue;
+            int safeLength = safeLength(words.group());
+            if (safeLength <= 0) continue;
             Result part = scanSegment(text.substring(segmentStart, words.start()), repl, layers);
             out.append(part.text());
             filtered |= part.filtered();
-            out.append(words.group());
+            out.append(words.group(), 0, safeLength);
+            if (safeLength < words.group().length()) {
+                // A "prefix*" entry vouches for the prefix only. What follows it ("скрафт" + "хуй") is scanned on its own, so a
+                // banned word glued to a safe prefix can no longer hide inside the safe token.
+                Result tailOfToken = scanSegment(words.group().substring(safeLength), repl, layers);
+                out.append(tailOfToken.text());
+                filtered |= tailOfToken.filtered();
+            }
             segmentStart = words.end();
         }
         Result tail = scanSegment(text.substring(segmentStart), repl, layers);
