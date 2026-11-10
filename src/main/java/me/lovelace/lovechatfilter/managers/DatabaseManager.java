@@ -12,7 +12,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 @SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve"})
-public class DatabaseManager implements WordLists.WordStore {
+public class DatabaseManager implements WordLists.WordStore, WebSettings.Store, ViolationStats.Store {
     private final LoveChatFilter plugin;
     private Connection connection;
     private volatile boolean isShuttingDown = false;
@@ -39,6 +39,8 @@ public class DatabaseManager implements WordLists.WordStore {
             try (Statement stmt = connection.createStatement()) {
                 stmt.execute("CREATE TABLE IF NOT EXISTS grammar_users (uuid VARCHAR(36) PRIMARY KEY, enabled BOOLEAN)");
                 stmt.execute("CREATE TABLE IF NOT EXISTS custom_words (kind TEXT NOT NULL, word TEXT NOT NULL, added_by TEXT NOT NULL, added_at INTEGER NOT NULL, PRIMARY KEY (kind, word))");
+                stmt.execute("CREATE TABLE IF NOT EXISTS setting_overrides (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+                stmt.execute("CREATE TABLE IF NOT EXISTS violation_stats (day TEXT NOT NULL, type TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY (day, type))");
             }
         } catch (SQLException e) {
             plugin.getLogger().severe("Failed to connect to database or create table: " + e.getMessage());
@@ -165,6 +167,72 @@ public class DatabaseManager implements WordLists.WordStore {
         try (PreparedStatement ps = connection.prepareStatement("DELETE FROM custom_words WHERE kind = ? AND word = ?")) {
             ps.setString(1, kind.name());
             ps.setString(2, word);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException(e.getMessage(), e);
+        }
+    }
+
+    // ---- settings changed from the web panel and violation counters ----
+
+    @Override
+    public synchronized java.util.Map<String, String> loadOverrides() {
+        java.util.Map<String, String> result = new java.util.LinkedHashMap<>();
+        if (connection == null) return result;
+        try (PreparedStatement ps = connection.prepareStatement("SELECT key, value FROM setting_overrides");
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) result.put(rs.getString("key"), rs.getString("value"));
+        } catch (SQLException e) {
+            plugin.getLogger().warning("Не удалось прочитать настройки из панели: " + e.getMessage());
+        }
+        return result;
+    }
+
+    @Override
+    public synchronized void saveOverride(String key, String value) {
+        if (connection == null) throw new IllegalStateException("База данных недоступна.");
+        try (PreparedStatement ps = connection.prepareStatement("INSERT OR REPLACE INTO setting_overrides (key, value) VALUES (?, ?)")) {
+            ps.setString(1, key);
+            ps.setString(2, value);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException(e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public synchronized void deleteOverride(String key) {
+        if (connection == null) throw new IllegalStateException("База данных недоступна.");
+        try (PreparedStatement ps = connection.prepareStatement("DELETE FROM setting_overrides WHERE key = ?")) {
+            ps.setString(1, key);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException(e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public synchronized java.util.Map<String, Long> load(java.time.LocalDate since) {
+        java.util.Map<String, Long> result = new java.util.HashMap<>();
+        if (connection == null) return result;
+        try (PreparedStatement ps = connection.prepareStatement("SELECT day, type, count FROM violation_stats WHERE day >= ?")) {
+            ps.setString(1, since.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) result.put(rs.getString("day") + "|" + rs.getString("type"), rs.getLong("count"));
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().warning("Не удалось прочитать статистику нарушений: " + e.getMessage());
+        }
+        return result;
+    }
+
+    @Override
+    public synchronized void save(java.time.LocalDate day, String type, long count) {
+        if (connection == null) throw new IllegalStateException("База данных недоступна.");
+        try (PreparedStatement ps = connection.prepareStatement("INSERT OR REPLACE INTO violation_stats (day, type, count) VALUES (?, ?, ?)")) {
+            ps.setString(1, day.toString());
+            ps.setString(2, type);
+            ps.setLong(3, count);
             ps.executeUpdate();
         } catch (SQLException e) {
             throw new IllegalStateException(e.getMessage(), e);
