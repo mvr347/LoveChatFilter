@@ -106,4 +106,43 @@ class FilterEngineBehaviorTest {
         engine.reloadCache();
         assertFalse(engine.hasAdvertising("mysrv.ru"));
     }
+
+    @Test
+    void shippedSafeWordsApplyEvenWhenTheServerConfigHasItsOwnSafeWordsKey() {
+        // A banned fragment inside shipped words: the server config lists other safe words only.
+        plugin.getConfig().set("badwords-filter.list", java.util.List.of("(?i)[с$][уу]*[ч]*[к][а@4иу]*"));
+        plugin.getConfig().set("badwords-filter.safe-words", java.util.List.of("крафт*"));
+        plugin.getConfig().set("badwords-filter.safe-words-disabled", java.util.List.of());
+        engine.reloadCache();
+        assertFalse(engine.isProfane("сказать"), "shipped word");
+        assertFalse(engine.isProfane("москва"), "shipped word");
+        assertTrue(engine.isProfane("сука"));
+    }
+
+    @Test
+    void safeWordsDisabledInTheConfigAreCensoredAgain() {
+        plugin.getConfig().set("badwords-filter.list", java.util.List.of("(?i)[с$][уу]*[ч]*[к][а@4иу]*"));
+        plugin.getConfig().set("badwords-filter.safe-words-disabled", java.util.List.of("сказать"));
+        engine.reloadCache();
+        assertTrue(engine.isProfane("сказать"));
+        assertFalse(engine.isProfane("москва"));
+    }
+
+    @Test
+    void shippedWordsCountAsAlreadyKnownButAreNotListedForAdmins() {
+        assertTrue(engine.configWords(me.lovelace.lovechatfilter.managers.WordRules.Kind.SAFE).contains("сказать"));
+        assertFalse(engine.listedConfigWords(me.lovelace.lovechatfilter.managers.WordRules.Kind.SAFE).contains("сказать"));
+    }
+
+    @Test
+    void shippedWordsComeFromTheirOwnDatabaseAndCanBeSwitchedOffThere() {
+        plugin.getConfig().set("badwords-filter.list", java.util.List.of("(?i)[с$][уу]*[ч]*[к][а@4иу]*"));
+        engine.reloadCache();
+        assertNotNull(plugin.getSafeWordStore(), "safe-words.db is opened on enable");
+        assertTrue(plugin.getSafeWordStore().bundledCount() > 10000);
+        assertFalse(engine.isProfane("сказал"), "a shipped form");
+        plugin.getSafeWordStore().setBundledDisabled("сказал", true);
+        engine.reloadCache();
+        assertTrue(engine.isProfane("сказал"));
+    }
 }

@@ -22,6 +22,7 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
 
     private ConfigManager configManager;
     private DatabaseManager databaseManager;
+    private me.lovelace.lovechatfilter.managers.SafeWordStore safeWordStore;
     private me.lovelace.lovechatfilter.expansion.FilterPlaceholderExpansion placeholderExpansion;
     private FilterEngine filterEngine;
     private GrammarManager grammarManager;
@@ -47,8 +48,9 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
         this.configManager = new ConfigManager(this);
         this.databaseManager = new DatabaseManager(this);
         this.grammarManager = new GrammarManager(this);
+        openSafeWordStore();
         this.wordLists = new WordLists(
-                databaseManager,
+                safeWordStore != null ? new me.lovelace.lovechatfilter.managers.SplitWordStore(databaseManager, safeWordStore) : databaseManager,
                 task -> getServer().getScheduler().runTaskAsynchronously(this, task),
                 getLogger()::warning);
         this.wordLists.load();
@@ -98,6 +100,24 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
         getServer().getServicesManager().register(LoveChatFilterAPI.class, this, this, ServicePriority.Normal);
     }
 
+    /**
+     * The allowed words live in their own SQLite file. Without it (an unusable data folder) the plugin keeps working from the jar and
+     * from database.db, as before the split.
+     */
+    private void openSafeWordStore() {
+        try {
+            safeWordStore = me.lovelace.lovechatfilter.managers.SafeWordStore.open(new java.io.File(getDataFolder(), "safe-words.db"));
+            java.util.List<String> shipped = me.lovelace.lovechatfilter.filters.FilterEngine.bundledResourceWords();
+            if (safeWordStore.seedBundled(shipped, me.lovelace.lovechatfilter.managers.SafeWordStore.fingerprint(shipped))) {
+                getLogger().info("safe-words.db: встроенные безопасные слова обновлены (" + safeWordStore.bundledCount() + ").");
+            }
+        } catch (java.sql.SQLException | RuntimeException broken) {
+            getLogger().warning("safe-words.db недоступна, безопасные слова берутся из плагина и database.db: " + broken.getMessage());
+            if (safeWordStore != null) safeWordStore.close();
+            safeWordStore = null;
+        }
+    }
+
     @Override
     public void onDisable() {
         HandlerList.unregisterAll(this);
@@ -117,6 +137,7 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
         }
         if (violationStats != null) violationStats.flush();
         if (databaseManager != null) databaseManager.close();
+        if (safeWordStore != null) safeWordStore.close();
     }
 
     public void reloadPlugin() {
@@ -131,6 +152,8 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
 
     public ConfigManager getConfigManager() { return configManager; }
     public DatabaseManager getDatabaseManager() { return databaseManager; }
+    /** The allowed-words database, or null when it could not be opened. */
+    public me.lovelace.lovechatfilter.managers.SafeWordStore getSafeWordStore() { return safeWordStore; }
     public FilterEngine getFilterEngine() { return filterEngine; }
     public GrammarManager getGrammarManager() { return grammarManager; }
     public WordLists getWordLists() { return wordLists; }
@@ -167,7 +190,7 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
             row.put("addedAt", entry.addedAt());
             rows.add(row);
         }
-        for (String word : new java.util.TreeSet<>(filterEngine.configWords(parsed))) {
+        for (String word : new java.util.TreeSet<>(filterEngine.listedConfigWords(parsed))) {
             java.util.Map<String, Object> row = new java.util.LinkedHashMap<>();
             row.put("word", word);
             row.put("source", "config");

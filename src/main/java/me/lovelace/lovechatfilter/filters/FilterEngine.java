@@ -6,6 +6,7 @@ import me.clip.placeholderapi.PlaceholderAPI;
 import me.lovelace.lovechatfilter.LoveChatFilter;
 import me.lovelace.lovechatfilter.managers.ConfigManager;
 import me.lovelace.lovechatfilter.managers.WordLists;
+import me.lovelace.lovechatfilter.managers.SafeWordStore;
 import me.lovelace.lovechatfilter.managers.WordRules;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
@@ -100,6 +101,7 @@ public class FilterEngine {
         lastGoodwordTimeWithTarget.invalidateAll();
         lastGoodwordTimeNoTarget.invalidateAll();
         lastAdditionalTime.invalidateAll();
+        bundledFromStore = null; // re-read the shipped words (a /lcf reload may follow a change in safe-words.db)
         rebuildFilters();
     }
 
@@ -121,6 +123,7 @@ public class FilterEngine {
         WordLists words = plugin.getWordLists();
         List<String> customBad = new ArrayList<>(words.words(WordRules.Kind.BAD));
         List<String> safe = new ArrayList<>(configSafeWords(config));
+        safe.addAll(bundledSafeWords(config));
         safe.addAll(words.words(WordRules.Kind.SAFE));
 
         boolean advanced = config.getBoolean("badwords-filter.advanced.enabled", false);
@@ -320,8 +323,68 @@ public class FilterEngine {
                 : List.of("скрафт*", "крафт*", "сукно*");
     }
 
-    /** Words already present in config.yml for this kind, so an admin is not allowed to double them. */
+    private static volatile List<String> bundledResource;
+    private volatile List<String> bundledFromStore;
+
+    /**
+     * The safe words shipped in the jar ({@code safe-words.txt}: one word per line, "#" starts a comment). At startup they are copied
+     * into the plugin's own {@code safe-words.db} ({@link SafeWordStore}); this reads the file itself, for that copy and for tests.
+     */
+    public static List<String> bundledResourceWords() {
+        List<String> cached = bundledResource;
+        if (cached != null) return cached;
+        List<String> words = new ArrayList<>();
+        try (var in = FilterEngine.class.getResourceAsStream("/safe-words.txt")) {
+            if (in != null) {
+                for (String line : new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).split("\\R")) {
+                    String word = line.strip();
+                    if (!word.isEmpty() && !word.startsWith("#")) words.add(word);
+                }
+            }
+        } catch (java.io.IOException unreadable) {
+            // no bundled list: the config and database words still apply
+        }
+        bundledResource = List.copyOf(words);
+        return bundledResource;
+    }
+
+    /** Shipped words that are switched on: from {@code safe-words.db}, or from the jar when the database is unavailable. */
+    private List<String> shippedWords() {
+        SafeWordStore store = plugin.getSafeWordStore();
+        if (store == null) return bundledResourceWords();
+        List<String> cached = bundledFromStore;
+        if (cached == null) {
+            cached = List.copyOf(store.activeBundled());
+            bundledFromStore = cached;
+        }
+        return cached;
+    }
+
+    private List<String> bundledSafeWords(FileConfiguration config) {
+        java.util.Set<String> disabled = new java.util.HashSet<>();
+        for (String word : config.getStringList("badwords-filter.safe-words-disabled")) {
+            disabled.add(ProfanityScanner.normalize(word));
+        }
+        List<String> shipped = shippedWords();
+        if (disabled.isEmpty()) return shipped;
+        List<String> kept = new ArrayList<>();
+        for (String word : shipped) {
+            if (!disabled.contains(ProfanityScanner.normalize(word))) kept.add(word);
+        }
+        return kept;
+    }
+
+    /** Words already present in config.yml (or shipped with the plugin) for this kind, so an admin is not allowed to double them. */
     public java.util.Set<String> configWords(WordRules.Kind kind) {
+        java.util.Set<String> out = listedConfigWords(kind);
+        if (kind == WordRules.Kind.SAFE) {
+            bundledSafeWords(plugin.getConfigManager().getConfig()).forEach(w -> out.add(ProfanityScanner.normalize(w)));
+        }
+        return out;
+    }
+
+    /** The config.yml part of {@link #configWords}: what a list view shows (thousands of shipped words would only bury it). */
+    public java.util.Set<String> listedConfigWords(WordRules.Kind kind) {
         FileConfiguration config = plugin.getConfigManager().getConfig();
         java.util.Set<String> out = new java.util.HashSet<>();
         switch (kind) {

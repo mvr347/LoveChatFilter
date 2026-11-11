@@ -122,4 +122,22 @@ class ProfanityScannerTest {
         assertTrue(withSafe.scan("дурак", "#").filtered());
         assertTrue(scanner(List.of("дурак"), List.of()).scan("дурак123", "#").filtered());
     }
+
+    @Test
+    void aSafePrefixVouchesForThePrefixOnlyNotForABannedWordGluedToIt() {
+        var scanner = scanner(BAD, SAFE);
+        assertFalse(scanner.scan("скрафтить", "#").filtered());
+        assertFalse(scanner.scan("скрафтил сумку", "#").filtered());
+        var glued = scanner.scan("скрафтхуй", "#");
+        assertTrue(glued.filtered(), "the banned word glued to a safe prefix must not hide in the safe token");
+        assertEquals("скрафт###", glued.text());
+        assertEquals("скрафтить ####", scanner.scan("скрафтить сука", "#").text());
+    }
+
+    @Test
+    void aSafePrefixDoesNotLetTheRestOfTheMessageEscape() {
+        var scanner = scanner(BAD, SAFE);
+        assertEquals("скрафт### сумка", scanner.scan("скрафтхуй сумка", "#").text());
+        assertTrue(scanner.scan("крафтсука", "#").filtered());
+    }
 }
