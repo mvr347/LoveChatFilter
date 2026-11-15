@@ -28,6 +28,16 @@ class AdminApiTest {
     }
 
     @Test
+    void safeListIncludesTheActiveBundledDictionaryAlongsideCustomWords() {
+        var rows = plugin.listWords("safe");
+        assertTrue(rows.stream().anyMatch(row -> row.get("source").equals("bundled")));
+        plugin.addWord("safe", "жестко", "Панель");
+        assertTrue(plugin.listWords("safe").stream().anyMatch(row -> row.get("word").equals("жестко") && row.get("source").equals("game")));
+        assertFalse((Boolean) plugin.checkText("ЖЁСТКО!").get("profane"));
+        assertTrue((Boolean) plugin.checkText("жестко сука").get("profane"));
+    }
+
+    @Test
     void wordsAreAddedListedCheckedAndRemoved() {
         assertFalse((Boolean) plugin.checkText("дурак").get("profane"));
         assertEquals("дурак", plugin.addWord("bad", "Дурак", "Панель"));

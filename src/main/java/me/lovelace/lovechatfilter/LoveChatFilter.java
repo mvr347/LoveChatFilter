@@ -196,6 +196,11 @@ public class LoveChatFilter extends JavaPlugin implements LoveChatFilterAPI {
             row.put("source", "config");
             rows.add(row);
         }
+        if (parsed == WordRules.Kind.SAFE) {
+            var bundled = new java.util.TreeSet<>(filterEngine.configWords(parsed));
+            bundled.removeAll(filterEngine.listedConfigWords(parsed));
+            for (String word : bundled) rows.add(java.util.Map.of("word", word, "source", "bundled"));
+        }
         return rows;
     }
 
