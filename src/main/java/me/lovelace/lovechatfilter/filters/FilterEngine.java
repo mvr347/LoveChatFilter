@@ -69,10 +69,14 @@ public class FilterEngine {
     private record CacheKey(String text, boolean bypassCaps, boolean bypassBadwords, boolean bypassAds, boolean grammarEnabled, ContentType type) {}
     private record CacheValue(String processedText, boolean triggeredCaps, boolean triggeredSwear, boolean triggeredAds, boolean triggeredGoodwords, String target, boolean triggeredAdditional, String additionalTarget) {}
 
-    private final Cache<CacheKey, CacheValue> contentCache = Caffeine.newBuilder()
+    private volatile Cache<CacheKey, CacheValue> contentCache = newContentCache();
+
+    private static Cache<CacheKey, CacheValue> newContentCache() {
+        return Caffeine.newBuilder()
             .maximumSize(15000)
             .expireAfterAccess(1, TimeUnit.HOURS)
             .build();
+    }
 
     public enum ContentType { CHAT, SIGN, BOOK, ITEM }
 
@@ -108,7 +112,6 @@ public class FilterEngine {
     /** Rebuilds every compiled filter (config + words added in game) and drops the content cache. */
     public void rebuildFilters() {
         FileConfiguration config = plugin.getConfigManager().getConfig();
-        contentCache.invalidateAll();
 
         bwSignFilter = config.getBoolean("badwords-filter.sign-filter", true);
         bwBookFilter = config.getBoolean("badwords-filter.book-filter", true);
@@ -174,6 +177,9 @@ public class FilterEngine {
 
         List<String> politePhrases = config.getStringList("auto-moderation.polite-phrases.list");
         politePhrasePattern = politePhrases.isEmpty() ? null : Pattern.compile("(?ui)" + String.join("|", politePhrases));
+        // Publish after every scanner is rebuilt. Concurrent chat may still finish an old cache
+        // load: replacing the cache prevents that old decision from entering the new generation.
+        contentCache = newContentCache();
     }
 
     public ProcessResult processChat(Player player, String originalMessage) {
