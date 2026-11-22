@@ -2,8 +2,6 @@ name: LoveChatFilter
 version: "3.0"
 main: me.lovelace.lovechatfilter.LoveChatFilter
 api-version: '26.2'
-loadbefore:
-  - CMI
 depend: [LoveCore, LoveEssential, Lovechat]
 softdepend: [PlaceholderAPI, LoveBehavior]
 author:
